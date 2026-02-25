@@ -20,9 +20,9 @@ def seed_festivals_if_empty(db: Session) -> None:
         return
 
     festivals = [
-        Festival(festival_name="Diwali", date=date(2026, 11, 8), category="general", historical_uplift=0.30),
-        Festival(festival_name="Pongal", date=date(2026, 1, 14), category="grocery", historical_uplift=0.22),
-        Festival(festival_name="Christmas", date=date(2026, 12, 25), category="gifting", historical_uplift=0.18),
+        Festival(festival_name="Diwali", date=date(2024, 11, 1), category="general", historical_uplift=0.30),
+        Festival(festival_name="Pongal", date=date(2024, 1, 15), category="grocery", historical_uplift=0.22),
+        Festival(festival_name="Christmas", date=date(2024, 12, 25), category="gifting", historical_uplift=0.18),
     ]
     db.add_all(festivals)
     db.commit()
