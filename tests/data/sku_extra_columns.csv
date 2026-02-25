@@ -1,0 +1,2 @@
+﻿sku_id,product_name,category,mrp,cost,current_inventory,unexpected_col
+SKU_X1,Soap,Grocery,50,30,100,ignore_me
