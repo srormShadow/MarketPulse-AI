@@ -16,8 +16,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    logger.info("Database initialized")
+    try:
+        init_db()
+    except Exception:
+        logger.exception("Application startup aborted: database initialization failed")
+        raise
     yield
 
 
