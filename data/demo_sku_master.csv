@@ -1,0 +1,8 @@
+sku_id,product_name,category,mrp,cost,current_inventory
+OIL_1L_SUN,Sunflower Oil 1L,Edible Oil,180.0,145.0,420
+OIL_1L_GND,Groundnut Oil 1L,Edible Oil,210.0,168.0,390
+STP_RICE_5KG,Rice 5kg,Staples,340.0,280.0,250
+STP_DAL_1KG,Toor Dal 1kg,Staples,160.0,130.0,300
+SNK_CHIPS_50G,Potato Chips 50g,Snacks,20.0,11.0,900
+SNK_BISCUIT_100G,Butter Biscuit 100g,Snacks,35.0,22.0,780
+SNK_NAMKEEN_200G,Namkeen 200g,Snacks,55.0,33.0,640
