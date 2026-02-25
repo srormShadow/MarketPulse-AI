@@ -1,0 +1,3 @@
+﻿sku_id,product_name,category,mrp,cost,current_inventory
+SKU_OK,Valid Item,Grocery,100,70,40
+SKU_BAD,Bad Item,Grocery,not-a-number,50,20

@@ -1,0 +1,2 @@
+﻿sku_id,product_name,category,mrp,cost,current_inventory
+SKU_NEG,Inventory Drift,Ops,10,5,-4
