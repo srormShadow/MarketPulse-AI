@@ -7,6 +7,9 @@ MarketPulse-AI/
 ├── app/                          # Application source code
 │   ├── api/                      # API versioning and routing
 │   ├── core/                     # Configuration and logging
+│   ├── dashboard/                # Streamlit dashboard
+│   │   ├── app.py                # Main dashboard application
+│   │   └── __init__.py           # Package marker
 │   ├── db/                       # Database setup and sessions
 │   ├── models/                   # SQLAlchemy ORM models
 │   ├── routes/                   # API endpoint handlers
@@ -46,10 +49,14 @@ MarketPulse-AI/
 │
 ├── .env.example                  # Environment template
 ├── .gitignore                    # Git ignore rules
+├── GETTING_STARTED.md            # Quick start guide
 ├── LICENSE                       # Project license
 ├── README.md                     # Project overview
 ├── requirements.txt              # Production dependencies
 ├── requirements-dev.txt          # Development dependencies
+├── run_all.py                    # Launch backend + dashboard
+├── run_backend.py                # Launch backend only
+├── run_dashboard.py              # Launch dashboard only
 └── marketpulse.db                # SQLite database (generated)
 ```
 

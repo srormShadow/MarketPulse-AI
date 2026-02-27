@@ -1,8 +1,26 @@
 ﻿# MarketPulse AI Backend
 
-Production-ready FastAPI backend for retail demand forecasting and inventory optimization with recursive multi-step forecasting, lag-based autoregressive features, and comprehensive model diagnostics.
+Production-ready FastAPI backend for retail demand forecasting and inventory optimization with recursive multi-step forecasting, lag-based autoregressive features, comprehensive model diagnostics, and interactive Streamlit dashboard.
 
-> **Quick Links**: [Project Structure](PROJECT_STRUCTURE.md) | [Documentation](docs/README.md) | [API Reference](docs/API_INDEX.md) | [Scripts](scripts/README.md)
+> **Quick Links**: [Getting Started](GETTING_STARTED.md) | [Dashboard Guide](docs/DASHBOARD.md) | [Project Structure](PROJECT_STRUCTURE.md) | [Documentation](docs/README.md) | [API Reference](docs/API_INDEX.md) | [Scripts](scripts/README.md)
+
+## Quick Start
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Generate demo data
+python scripts/generate_demo_dataset.py
+
+# 3. Run everything (backend + dashboard)
+python run_all.py
+```
+
+**Access:**
+- 🎨 Dashboard: http://localhost:8501
+- 🚀 Backend API: http://127.0.0.1:8000
+- 📚 API Docs: http://127.0.0.1:8000/docs
 
 ## Project Structure
 
@@ -27,6 +45,13 @@ MarketPulse-AI/
 ```
 
 ## Features
+
+### 🎨 Interactive Dashboard
+- Real-time demand forecasting visualization
+- Interactive Plotly charts with confidence intervals
+- Inventory decision recommendations
+- Risk assessment with visual indicators
+- Responsive design for desktop and tablet
 
 ### Core Infrastructure
 - FastAPI application with modular architecture
