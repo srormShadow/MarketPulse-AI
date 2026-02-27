@@ -242,23 +242,59 @@ def compute_festival_proximity(
     return out
 
 
+def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add autoregressive lag features for time series forecasting.
+
+    Adds the following features:
+    - lag_1: units_sold shifted by 1 day
+    - lag_7: units_sold shifted by 7 days
+    - rolling_mean_7: 7-day rolling average of units_sold
+    - rolling_std_7: 7-day rolling standard deviation of units_sold
+
+    Args:
+        df: DataFrame with 'units_sold' column, sorted by date.
+
+    Returns:
+        DataFrame with lag features added. Rows with insufficient history are dropped.
+    """
+    out = df.copy()
+
+    # Ensure sorted by date for proper lag calculation
+    if "date" in out.columns:
+        out = out.sort_values("date").reset_index(drop=True)
+
+    # Create lag features
+    out["lag_1"] = out["units_sold"].shift(1)
+    out["lag_7"] = out["units_sold"].shift(7)
+
+    # Create rolling features (min_periods ensures we have enough data)
+    out["rolling_mean_7"] = out["units_sold"].rolling(window=7, min_periods=7).mean()
+    out["rolling_std_7"] = out["units_sold"].rolling(window=7, min_periods=7).std()
+
+    # Drop rows with insufficient lag history (first 7 rows will have NaN)
+    out = out.dropna(subset=["lag_1", "lag_7", "rolling_mean_7", "rolling_std_7"]).reset_index(drop=True)
+
+    return out
+
+
 def prepare_training_data(
     session: Session,
     category: str,
     one_hot_encode_weekday: bool = False,
     k: float = 0.2,
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
-    """Build model-ready training data for a category.
+    """Build model-ready training data for a category with lag features.
 
     Pipeline:
     1. Aggregate category daily demand
     2. Add time index
     3. Add weekday feature(s)
     4. Add festival proximity features
-    5. Drop rows with nulls in required fields
+    5. Add lag features (lag_1, lag_7, rolling_mean_7, rolling_std_7)
+    6. Drop rows with nulls in required fields
 
     Returns:
-    - X: feature matrix
+    - X: feature matrix including lag features
     - y: target series (`units_sold`)
     - engineered_df: full engineered DataFrame after cleaning
     """
@@ -268,9 +304,23 @@ def prepare_training_data(
     engineered = add_weekday_feature(engineered, one_hot_encode=one_hot_encode_weekday)
     engineered = compute_festival_proximity(engineered, session, category, k=k)
 
-    required_columns: Sequence[str] = ["time_index", "weekday", "festival_score", "units_sold"]
+    # Add lag features before dropping nulls
+    engineered = add_lag_features(engineered)
+
+    required_columns: Sequence[str] = [
+        "time_index",
+        "weekday",
+        "festival_score",
+        "lag_1",
+        "lag_7",
+        "rolling_mean_7",
+        "rolling_std_7",
+        "units_sold",
+    ]
     engineered = engineered.dropna(subset=list(required_columns)).reset_index(drop=True)
 
-    X = engineered[["time_index", "weekday", "festival_score"]].copy()
+    X = engineered[
+        ["time_index", "weekday", "festival_score", "lag_1", "lag_7", "rolling_mean_7", "rolling_std_7"]
+    ].copy()
     y = engineered["units_sold"].astype(float)
     return X, y, engineered

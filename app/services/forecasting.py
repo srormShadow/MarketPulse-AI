@@ -92,13 +92,19 @@ def forecast_next_n_days(
     category: str,
     n_days: int = 30,
 ) -> pd.DataFrame:
-    """Forecast next N days with uncertainty for a retail category.
+    """Forecast next N days with uncertainty using recursive multi-step prediction.
 
     Pipeline:
-    1. Build historical training data from existing feature engineering.
+    1. Build historical training data with lag features from feature engineering.
     2. Train Bayesian Ridge model on standardized features.
-    3. Generate future time/weekday/festival features.
-    4. Predict mean and 95% confidence interval.
+    3. For each future day, recursively:
+       a) Build feature row with time/weekday/festival features
+       b) For lag features:
+          - If lag refers to historical period → use actual data
+          - If lag refers to future period → use previous prediction
+       c) Predict next day with uncertainty
+       d) Append predicted value to temporary series for next iteration
+    4. Return forecast with mean and 95% confidence intervals.
 
     Args:
         session: Active SQLAlchemy session.
@@ -113,7 +119,7 @@ def forecast_next_n_days(
         raise ValueError("n_days must be a positive integer")
 
     X_train, y_train, full_df = prepare_training_data(session, category)
-    if full_df.empty or len(full_df) < 5:
+    if full_df.empty or len(full_df) < 7:
         raise ValueError("Insufficient historical data to train forecasting model")
 
     model, scaler = train_model(X_train, y_train)
@@ -121,6 +127,12 @@ def forecast_next_n_days(
     last_date = pd.to_datetime(full_df["date"].max())
     last_time_index = int(full_df["time_index"].max())
 
+    # Build extended series that includes historical + future predictions
+    # This allows us to look back for lag features during recursive forecasting
+    historical_units: list[float] = full_df["units_sold"].values.tolist()
+    predicted_units: list[float] = []
+
+    # Pre-compute future dates and festival features
     future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=n_days, freq="D")
 
     future_df = pd.DataFrame(
@@ -138,9 +150,68 @@ def forecast_next_n_days(
     )
     future_df["festival_score"] = festival_features["festival_score"].astype(float)
 
-    X_future = future_df[["time_index", "weekday", "festival_score"]]
-    preds = predict_with_uncertainty(model, scaler, X_future)
+    # Recursive forecasting: predict one day at a time
+    predictions_mean: list[float] = []
+    predictions_lower: list[float] = []
+    predictions_upper: list[float] = []
 
-    result = pd.DataFrame({"date": future_dates})
-    result = pd.concat([result, preds], axis=1)
+    for i in range(n_days):
+        # Combined series: historical + predictions so far
+        combined_series: list[float] = historical_units + predicted_units
+
+        # Calculate lag features for current prediction step
+        # lag_1: previous day (could be historical or predicted)
+        lag_1 = float(combined_series[-1]) if len(combined_series) >= 1 else 0.0
+
+        # lag_7: 7 days ago (could be historical or predicted)
+        lag_7 = float(combined_series[-7]) if len(combined_series) >= 7 else lag_1
+
+        # rolling_mean_7: average of last 7 days
+        if len(combined_series) >= 7:
+            rolling_mean_7 = float(np.mean(combined_series[-7:]))
+        else:
+            rolling_mean_7 = float(np.mean(combined_series))
+
+        # rolling_std_7: std of last 7 days
+        if len(combined_series) >= 7:
+            rolling_std_7 = float(np.std(combined_series[-7:]))
+        else:
+            rolling_std_7 = 0.0
+
+        # Build feature row for this prediction
+        X_future_row = pd.DataFrame(
+            {
+                "time_index": [future_df.iloc[i]["time_index"]],
+                "weekday": [future_df.iloc[i]["weekday"]],
+                "festival_score": [future_df.iloc[i]["festival_score"]],
+                "lag_1": [lag_1],
+                "lag_7": [lag_7],
+                "rolling_mean_7": [rolling_mean_7],
+                "rolling_std_7": [rolling_std_7],
+            }
+        )
+
+        # Predict with uncertainty
+        pred = predict_with_uncertainty(model, scaler, X_future_row)
+
+        mean_val = float(pred["predicted_mean"].iloc[0])
+        lower_val = float(pred["lower_95"].iloc[0])
+        upper_val = float(pred["upper_95"].iloc[0])
+
+        predictions_mean.append(mean_val)
+        predictions_lower.append(lower_val)
+        predictions_upper.append(upper_val)
+
+        # Add prediction to series for next iteration
+        predicted_units.append(mean_val)
+
+    result = pd.DataFrame(
+        {
+            "date": future_dates,
+            "predicted_mean": predictions_mean,
+            "lower_95": predictions_lower,
+            "upper_95": predictions_upper,
+        }
+    )
+
     return result
