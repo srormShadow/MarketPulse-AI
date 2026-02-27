@@ -5,3 +5,4 @@ pydantic-settings==2.10.1
 python-dotenv==1.1.1
 pandas==3.0.0
 python-multipart==0.0.20
+scikit-learn==1.8.0
