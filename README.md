@@ -1,205 +1,105 @@
-﻿# MarketPulse AI Backend
+# MarketPulse AI
 
-Production-ready FastAPI backend for retail demand forecasting and inventory optimization with recursive multi-step forecasting, lag-based autoregressive features, comprehensive model diagnostics, and interactive Streamlit dashboard.
+Retail demand forecasting and inventory optimization platform powered by Bayesian Ridge regression with recursive multi-step prediction, lag-based autoregressive features, and a React dashboard.
 
-> **Quick Links**: [Getting Started](GETTING_STARTED.md) | [Dashboard Guide](docs/DASHBOARD.md) | [Project Structure](PROJECT_STRUCTURE.md) | [Documentation](docs/README.md) | [API Reference](docs/API_INDEX.md) | [Scripts](scripts/README.md)
+> **Docs**: [Getting Started](docs/GETTING_STARTED.md) | [API Reference](docs/API_INDEX.md) | [Project Structure](docs/PROJECT_STRUCTURE.md) | [All Documentation](docs/README.md)
 
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# 1. Clone and set up Python environment
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 2. Generate demo data
+# 2. Generate demo data and start backend
 python scripts/generate_demo_dataset.py
+uvicorn src.marketpulse.api.main:app --reload
 
-# 3. Run everything (backend + dashboard)
-python run_all.py
+# 3. Start frontend (separate terminal)
+cd frontend
+npm install
+npm run dev
 ```
 
 **Access:**
-- 🎨 Dashboard: http://localhost:8501
-- 🚀 Backend API: http://127.0.0.1:8000
-- 📚 API Docs: http://127.0.0.1:8000/docs
+- Frontend Dashboard: http://localhost:5173
+- Backend API: http://127.0.0.1:8000
+- Swagger Docs: http://127.0.0.1:8000/docs
 
-## Project Structure
+## Architecture
 
-```text
+```
 MarketPulse-AI/
-├── app/                      # Application code
-│   ├── api/                  # API routes and endpoints
-│   ├── core/                 # Core configuration and logging
-│   ├── db/                   # Database setup and session management
-│   ├── models/               # SQLAlchemy models
-│   ├── routes/               # API route handlers
-│   ├── schemas/              # Pydantic schemas
-│   ├── services/             # Business logic and services
-│   └── main.py               # FastAPI application entrypoint
-├── data/                     # Demo datasets and sample data
-├── docs/                     # Documentation and summaries
-├── scripts/                  # Utility and verification scripts
-├── tests/                    # Test suite
-├── .env.example              # Environment template
-├── requirements.txt          # Production dependencies
-└── requirements-dev.txt      # Development dependencies
+├── src/marketpulse/          # Backend (FastAPI + Python)
+│   ├── api/                  # Routes and REST endpoints
+│   ├── core/                 # Config, logging
+│   ├── db/                   # SQLAlchemy session and init
+│   ├── domain/               # Models and Pydantic schemas
+│   └── infrastructure/       # Database layer
+├── frontend/                 # Frontend (React + Vite + Tailwind)
+│   └── src/
+│       ├── components/       # Reusable UI components
+│       └── pages/            # Dashboard pages
+├── scripts/                  # Data generation and verification
+├── tests/                    # pytest test suite (117 tests)
+├── data/                     # Demo datasets and DB
+└── docs/                     # All documentation
 ```
 
 ## Features
 
-### 🎨 Interactive Dashboard
-- Real-time demand forecasting visualization
-- Interactive Plotly charts with confidence intervals
-- Inventory decision recommendations
-- Risk assessment with visual indicators
-- Responsive design for desktop and tablet
+### Backend
+- **Forecasting Engine** — BayesianRidge with recursive multi-step prediction (up to 90 days), 95% confidence intervals, autoregressive lag features (lag_1, lag_7, rolling stats), festival proximity scoring
+- **Inventory Optimization** — Safety stock calculation, reorder point determination, order quantity recommendations, risk assessment with action classification
+- **Model Diagnostics** — Per-category coefficient analysis, cross-category comparison, feature importance ranking, behavioral classification
+- **REST API** — FastAPI with health check, CSV upload (sales/SKU), forecast generation, debug endpoints
 
-### Core Infrastructure
-- FastAPI application with modular architecture
-- SQLite + SQLAlchemy ORM with session management
-- Environment-based configuration via `pydantic-settings`
-- Centralized logging with configurable levels
-- Health check endpoint at `GET /health`
+### Frontend
+- **Portfolio Overview** — KPI cards, inventory health table with risk indicators, interactive risk drawer for high-risk categories, risk distribution and inventory gap charts
+- **Category Intelligence** — Per-category demand forecast visualization with historical/predicted lines, confidence bands, decision summary with AI-recommended actions
+- **Data Management** — CSV upload with drag-and-drop, inventory configuration, demo dataset loader
+- Dark glass-morphism UI with Recharts visualizations and Tailwind CSS
 
-### Data Management
-- CSV ingestion for sales and SKU data
-- Festival calendar management
-- Category-level sales aggregation
-- Data validation and error handling
+## API Endpoints
 
-### Forecasting Engine
-- Bayesian Ridge regression with uncertainty quantification
-- Recursive multi-step forecasting (up to 90 days)
-- Autoregressive lag features (lag_1, lag_7, rolling stats)
-- Festival proximity scoring with multi-event accumulation
-- Category-specific model training
-
-### Inventory Optimization
-- Safety stock calculation based on forecast uncertainty
-- Reorder point determination with lead time consideration
-- Order quantity recommendations
-- Risk assessment and action recommendations
-
-### Model Diagnostics
-- Category-specific coefficient analysis
-- Cross-category behavioral comparison
-- Feature importance ranking
-- Sensitivity analysis
-
-### API Endpoints
-- `GET /health` - Health check
-- `POST /upload/sales` - Upload sales CSV
-- `POST /upload/sku` - Upload SKU master CSV
-- `POST /forecast/{category}` - Generate forecast with inventory decisions
-- `GET /debug/sales` - View sales data
-- `GET /debug/sku` - View SKU data
-- `GET /debug/festivals` - View festival calendar
-
-## Quick Start
-
-1. **Create and activate a virtual environment:**
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   pip install -r requirements-dev.txt  # For development
-   ```
-
-3. **Set up environment:**
-   ```bash
-   cp .env.example .env
-   ```
-
-4. **Initialize database and load demo data:**
-   ```bash
-   python scripts/generate_demo_dataset.py
-   ```
-
-5. **Run the API:**
-   ```bash
-   uvicorn app.main:app --reload
-   ```
-
-6. **Access the application:**
-   - API: `http://127.0.0.1:8000`
-   - Interactive docs: `http://127.0.0.1:8000/docs`
-   - Health check: `http://127.0.0.1:8000/health`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `POST` | `/upload/sales` | Upload sales CSV |
+| `POST` | `/upload/sku` | Upload SKU master CSV |
+| `POST` | `/forecast/{category}` | Generate forecast with inventory decisions |
+| `GET` | `/debug/sales` | View sales data |
+| `GET` | `/debug/sku` | View SKU data |
+| `GET` | `/debug/festivals` | View festival calendar |
 
 ## Testing
 
-Run the full test suite:
 ```bash
-pytest
+pytest                                    # Run all tests
+pytest --cov=src --cov-report=html        # With coverage
+pytest tests/test_lag_features.py -v      # Specific test file
 ```
 
-Run with coverage:
-```bash
-pytest --cov=app --cov-report=html
-```
+## Tech Stack
 
-Run verification scripts:
-```bash
-python scripts/verify_dataset.py
-python scripts/verify_features.py
-python scripts/verify_forecasting.py
-python scripts/verify_recursive_forecast.py
-python scripts/verify_category_behavior.py
-```
+| Layer | Technology |
+|-------|------------|
+| Backend | FastAPI, SQLAlchemy 2.0, Pydantic |
+| ML | scikit-learn (BayesianRidge), pandas, numpy |
+| Frontend | React 19, Vite 7, Tailwind CSS v4, Recharts |
+| Testing | pytest |
+| Database | SQLite (dev) |
 
 ## Documentation
 
-Comprehensive documentation is available in the `docs/` directory:
-
-- **[API Index](docs/API_INDEX.md)** - Overview of all API endpoints
-- **[Forecast API](docs/FORECAST_API.md)** - Forecasting endpoint details
-- **[Recursive Forecasting](docs/RECURSIVE_FORECASTING.md)** - Technical implementation
-- **[Model Diagnostics](docs/MODEL_DIAGNOSTICS.md)** - Category analysis tools
-- **[Quick Reference](docs/QUICK_REFERENCE.md)** - Common tasks and examples
-
-## Project Organization
-
-- **`app/`** - Application source code
-- **`data/`** - Demo datasets and sample files
-- **`docs/`** - Documentation, summaries, and guides
-- **`scripts/`** - Utility scripts for data generation and verification
-- **`tests/`** - Comprehensive test suite (117 tests)
-
-## Technology Stack
-
-- **FastAPI** - Modern web framework
-- **SQLAlchemy** - ORM and database toolkit
-- **Pydantic** - Data validation
-- **scikit-learn** - Machine learning (BayesianRidge)
-- **pandas** - Data manipulation
-- **numpy** - Numerical computing
-- **pytest** - Testing framework
-
-
-## File Organization
-
-All files are now properly organized:
-
-- **Root**: Only essential files (README, LICENSE, requirements, config)
-- **`/app`**: All application source code
-- **`/data`**: Demo datasets and sample files
-- **`/docs`**: All documentation, summaries, and guides
-- **`/scripts`**: All utility and verification scripts
-- **`/tests`**: Comprehensive test suite (117 tests)
-
-See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed directory structure and organization principles.
-
-## Contributing
-
-When adding new features:
-1. Add code to appropriate `/app` subdirectory
-2. Add tests to `/tests`
-3. Add documentation to `/docs`
-4. Add verification scripts to `/scripts` if needed
-5. Update relevant README files
+See [docs/README.md](docs/README.md) for the full documentation index, including:
+- [API Reference](docs/API_INDEX.md) — All endpoints with examples
+- [Forecast API](docs/FORECAST_API.md) — Forecasting endpoint details
+- [Recursive Forecasting](docs/RECURSIVE_FORECASTING.md) — Algorithm deep-dive
+- [Model Diagnostics](docs/MODEL_DIAGNOSTICS.md) — Category analysis tools
+- [AWS Deployment](docs/AWS_DEPLOYMENT.md) — Deployment strategy
 
 ## License
 
-See [LICENSE](LICENSE) file for details.
+See [LICENSE](LICENSE) for details.

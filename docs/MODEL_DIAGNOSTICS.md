@@ -458,6 +458,56 @@ Cross-reference diagnostic results with actual demand patterns.
 
 **Solution:** Check for outliers in historical data
 
+## Quick Reference
+
+```python
+from app.services.model_diagnostics import (
+    analyze_category_model,
+    compare_categories,
+    rank_feature_importance,
+    summarize_category_behavior,
+    compare_feature_sensitivity
+)
+from app.db.session import SessionLocal
+
+session = SessionLocal()
+
+# Single category analysis
+result = analyze_category_model(session, "Snacks")
+
+# Compare categories side-by-side
+comparison = compare_categories(session, ["Snacks", "Edible Oil", "Staples"])
+
+# Rank by specific feature
+ranking = rank_feature_importance(session, ["Snacks", "Edible Oil", "Staples"], "festival_score")
+
+# Human-readable summary
+summary = summarize_category_behavior(session, "Snacks")
+
+# Find sensitivity leaders
+leaders = compare_feature_sensitivity(session, ["Snacks", "Edible Oil", "Staples"])
+```
+
+## Appendix: Verification Results
+
+Sample output from `python verify_category_behavior.py`:
+
+```
+            time_index  weekday  festival_score    lag_1    lag_7
+Edible Oil      4.0551   0.4690          6.8185  12.6961 -15.7023
+Snacks          4.0863  15.8080          5.3943   3.9441 -12.7953
+Staples         1.8114  -0.4398          5.8537  12.2536 -13.8419
+```
+
+**Feature Sensitivity Leaders:**
+- Festival-sensitive: Edible Oil (6.82)
+- Momentum-driven: Edible Oil (12.70)
+- Weekly-seasonal: Edible Oil (15.70)
+- Trend-following: Snacks (4.09)
+- Volatility-aware: Edible Oil (9.82)
+
+**Coefficient Variance:** weekday: 83.35, lag_1: 24.31, festival_score: 0.53 — confirms models learn distinct patterns per category.
+
 ## References
 
 - BayesianRidge Documentation: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.BayesianRidge.html

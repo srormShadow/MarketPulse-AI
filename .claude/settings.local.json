@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -d */)",
+      "Bash(npm run build)",
+      "Bash(ls *.md)"
+    ]
+  }
+}
