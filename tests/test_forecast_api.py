@@ -4,8 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.sales import Sales
-from app.models.sku import SKU
+from marketpulse.models.sales import Sales
+from marketpulse.models.sku import SKU
 
 
 @pytest.fixture

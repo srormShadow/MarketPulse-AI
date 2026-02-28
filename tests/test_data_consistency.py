@@ -4,8 +4,8 @@ from datetime import date
 
 from sqlalchemy import func, select
 
-from app.models.sales import Sales
-from app.models.sku import SKU
+from marketpulse.models.sales import Sales
+from marketpulse.models.sku import SKU
 
 
 def test_sales_row_count_stable_after_duplicate_upload(client, db_session):

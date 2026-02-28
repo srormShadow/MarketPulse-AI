@@ -2,7 +2,7 @@
 
 import logging
 
-import app.routes.upload as upload_route
+import marketpulse.routes.upload as upload_route
 
 
 async def _raise_runtime_error(file, db):  # noqa: ARG001

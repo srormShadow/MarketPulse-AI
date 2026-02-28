@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.services.decision_engine import (
+from marketpulse.services.decision_engine import (
     assess_risk_score,
     calculate_order_quantity,
     calculate_reorder_point,

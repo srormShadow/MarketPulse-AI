@@ -6,11 +6,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.models.festival import Festival
-from app.models.sales import Sales
-from app.models.sku import SKU
-from app.services.feature_engineering import add_lag_features, prepare_training_data
-from app.services.forecasting import forecast_next_n_days
+from marketpulse.models.festival import Festival
+from marketpulse.models.sales import Sales
+from marketpulse.models.sku import SKU
+from marketpulse.services.feature_engineering import add_lag_features, prepare_training_data
+from marketpulse.services.forecasting import forecast_next_n_days
 
 
 def _seed_lag_test_data(session) -> None:
