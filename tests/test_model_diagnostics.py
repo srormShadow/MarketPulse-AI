@@ -5,10 +5,10 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from app.models.festival import Festival
-from app.models.sales import Sales
-from app.models.sku import SKU
-from app.services.model_diagnostics import (
+from marketpulse.models.festival import Festival
+from marketpulse.models.sales import Sales
+from marketpulse.models.sku import SKU
+from marketpulse.services.model_diagnostics import (
     analyze_category_model,
     compare_categories,
     compare_feature_sensitivity,

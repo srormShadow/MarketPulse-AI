@@ -5,10 +5,10 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from app.models.festival import Festival
-from app.models.sales import Sales
-from app.models.sku import SKU
-from app.services.forecasting import forecast_next_n_days
+from marketpulse.models.festival import Festival
+from marketpulse.models.sales import Sales
+from marketpulse.models.sku import SKU
+from marketpulse.services.forecasting import forecast_next_n_days
 
 
 def _seed_forecasting_data(session) -> None:

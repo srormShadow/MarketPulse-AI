@@ -2,8 +2,8 @@
 
 from sqlalchemy import select
 
-from app.models.sales import Sales
-from app.models.sku import SKU
+from marketpulse.models.sales import Sales
+from marketpulse.models.sku import SKU
 
 
 def test_upload_valid_sku_csv(client, db_session, csv_bytes):

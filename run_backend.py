@@ -9,6 +9,8 @@ Usage:
 
 import subprocess
 import sys
+import os
+from pathlib import Path
 
 def main():
     """Launch the FastAPI backend."""
@@ -22,17 +24,22 @@ def main():
     print("=" * 60)
     
     try:
+        env = os.environ.copy()
+        # Add src to PYTHONPATH so marketpulse module can be found
+        src_path = str(Path(__file__).parent / "src")
+        env["PYTHONPATH"] = src_path + os.pathsep + env.get("PYTHONPATH", "")
+        
         subprocess.run([
             sys.executable,
             "-m",
             "uvicorn",
-            "app.main:app",
+            "marketpulse.main:app",
             "--reload",
             "--host",
             "127.0.0.1",
             "--port",
             "8000"
-        ])
+        ], env=env)
     except KeyboardInterrupt:
         print("\n\nServer stopped.")
         sys.exit(0)

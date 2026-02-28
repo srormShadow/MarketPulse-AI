@@ -5,10 +5,10 @@ from datetime import date
 from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 
-from app.models.festival import Festival
-from app.models.sales import Sales
-from app.models.sku import SKU
-from app.services.festival_seed import seed_festivals_if_empty
+from marketpulse.models.festival import Festival
+from marketpulse.models.sales import Sales
+from marketpulse.models.sku import SKU
+from marketpulse.services.festival_seed import seed_festivals_if_empty
 
 
 def test_expected_tables_are_created(test_engine):

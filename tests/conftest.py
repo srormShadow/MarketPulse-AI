@@ -14,9 +14,9 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.db.base import Base
-from app.db.session import get_db
-from app.main import app
+from marketpulse.db.base import Base
+from marketpulse.db.session import get_db
+from marketpulse.main import app
 
 
 @pytest.fixture(scope="session")

@@ -4,8 +4,8 @@ from datetime import date
 
 from sqlalchemy import func, select
 
-from app.models.sales import Sales
-from app.models.sku import SKU
+from marketpulse.models.sales import Sales
+from marketpulse.models.sku import SKU
 from tests.utils.csv_factory import build_sales_csv, build_sku_csv
 
 

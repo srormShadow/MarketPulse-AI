@@ -4,7 +4,7 @@ import logging
 
 from sqlalchemy import select
 
-from app.models.sales import Sales
+from marketpulse.models.sales import Sales
 
 
 def test_negative_units_sold_rows_are_dropped(client, db_session):
