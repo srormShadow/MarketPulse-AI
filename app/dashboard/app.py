@@ -81,7 +81,7 @@ st.markdown("""
 
 
 @st.cache_data(ttl=300)
-def fetch_all_forecasts():
+def fetch_all_forecasts(inventory_overrides=None):
     """Simulate parallel fetching of all categories for the executive view."""
     results = []
     
@@ -94,7 +94,8 @@ def fetch_all_forecasts():
 
     for cat in CATEGORIES:
         category_payload = payload.copy()
-        category_payload["current_inventory"] = DEFAULT_INVENTORY[cat]
+        current_inv = inventory_overrides.get(cat, DEFAULT_INVENTORY[cat]) if inventory_overrides else DEFAULT_INVENTORY[cat]
+        category_payload["current_inventory"] = current_inv
         
         try:
             resp = requests.post(f"{API_BASE}/forecast/{cat}", json=category_payload, timeout=10)
@@ -109,10 +110,10 @@ def fetch_all_forecasts():
                 results.append({
                     "Category": cat,
                     "30D Forecast": round(demand_30d),
-                    "Current Inventory": DEFAULT_INVENTORY[cat],
+                    "Current Inventory": current_inv,
                     "Reorder Point": round(decision["reorder_point"]),
                     "Safety Stock": round(decision["safety_stock"]),
-                    "Gap": DEFAULT_INVENTORY[cat] - decision["reorder_point"],
+                    "Gap": current_inv - decision["reorder_point"],
                     "Risk Score": decision["risk_score"],
                     "Recommended Action": decision["recommended_action"],
                     "_raw_forecast": forecast_df
@@ -205,7 +206,7 @@ def render_inventory_health_table(data):
         .format({"Risk Score": "{:.2f}", "Gap": "{:+.0f}"})
     )
 
-    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    st.dataframe(styled_df, width="stretch", hide_index=True)
 
 
 def render_risk_chart(data):
@@ -290,7 +291,7 @@ def render_risk_chart(data):
     )
     fig.update_yaxes(automargin=True)
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_gap_chart(data):
@@ -355,7 +356,7 @@ def render_gap_chart(data):
     )
     fig.update_yaxes(automargin=True)
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 
@@ -455,7 +456,7 @@ def render_category_drilldown(data):
             )
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
@@ -485,6 +486,36 @@ def render_category_drilldown(data):
 
 def render_data_management():
     """Data Management tab: demo mode or CSV upload with validation."""
+
+    # ------------------------------------------------------------------
+    # INVENTORY CONFIGURATION
+    # ------------------------------------------------------------------
+    st.markdown("### Inventory Configuration")
+    st.markdown(
+        "<p style='margin-bottom: 1rem;'>These values represent current stock on hand used for reorder optimization.</p>", 
+        unsafe_allow_html=True
+    )
+
+    if "inventory_levels" not in st.session_state:
+        st.session_state.inventory_levels = DEFAULT_INVENTORY.copy()
+
+    cols = st.columns(3)
+    for idx, (cat, col) in enumerate(zip(CATEGORIES, cols)):
+        with col:
+            new_val = st.number_input(
+                f"{cat} Current Inventory",
+                min_value=0,
+                step=10,
+                value=int(st.session_state.inventory_levels.get(cat, DEFAULT_INVENTORY[cat])),
+                key=f"inv_input_{cat}"
+            )
+            # Update session state if changed
+            if new_val != st.session_state.inventory_levels.get(cat):
+                st.session_state.inventory_levels[cat] = new_val
+                # Clear the forecast cache since inputs changed
+                fetch_all_forecasts.clear()
+
+    st.markdown("<hr style='border-color:#2D333B; margin-top:2rem; margin-bottom:2rem;'>", unsafe_allow_html=True)
 
     st.markdown("### Dataset Source")
     st.markdown("<p>Choose how to supply data to the forecasting engine.</p>", unsafe_allow_html=True)
@@ -555,7 +586,7 @@ def render_data_management():
 
             # ── Preview ───────────────────────────────────────────────
             st.markdown("#### Preview (first 10 rows)")
-            st.dataframe(df.head(10), use_container_width=True, hide_index=True)
+            st.dataframe(df.head(10), width="stretch", hide_index=True)
 
             # ── Validation ────────────────────────────────────────────
             st.markdown("#### Validation Report")
@@ -634,10 +665,13 @@ def render_data_management():
 
 
 def main():
+    if "inventory_levels" not in st.session_state:
+        st.session_state.inventory_levels = DEFAULT_INVENTORY.copy()
+
     render_header()
 
     with st.spinner("Compiling executive intelligence..."):
-        data = fetch_all_forecasts()
+        data = fetch_all_forecasts(inventory_overrides=st.session_state.inventory_levels)
 
     if not data:
         st.warning("Ensure backend API is running at http://127.0.0.1:8000")
