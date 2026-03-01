@@ -7,6 +7,7 @@ import sys
 
 import boto3
 import pandas as pd
+from botocore.exceptions import ClientError
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
@@ -35,9 +36,21 @@ def _ensure_s3_buckets() -> None:
         try:
             client.head_bucket(Bucket=bucket_name)
             print(f"[ok] S3 bucket already exists: {bucket_name}")
-        except Exception:
-            client.create_bucket(Bucket=bucket_name)
-            print(f"[ok] Created S3 bucket: {bucket_name}")
+        except ClientError:
+            try:
+                create_kwargs = {"Bucket": bucket_name}
+                if settings.aws_region and settings.aws_region != "us-east-1":
+                    create_kwargs["CreateBucketConfiguration"] = {
+                        "LocationConstraint": settings.aws_region
+                    }
+                client.create_bucket(**create_kwargs)
+                print(f"[ok] Created S3 bucket: {bucket_name}")
+            except ClientError as exc:
+                code = str(exc.response.get("Error", {}).get("Code", ""))
+                if code in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
+                    print(f"[ok] S3 bucket already exists: {bucket_name}")
+                else:
+                    raise
 
 
 def _load_demo_csvs(repo: DynamoRepository) -> None:
