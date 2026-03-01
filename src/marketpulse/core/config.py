@@ -11,6 +11,21 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./marketpulse.db"
 
+    # DynamoDB backend (set USE_DYNAMO=true to activate)
+    use_dynamo: bool = False
+    aws_region: str = "ap-south-1"
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_session_token: str | None = None
+    dynamo_endpoint: str | None = None
+    dynamo_endpoint_url: str | None = None
+    s3_endpoint: str | None = None
+    s3_endpoint_url: str | None = None
+    bedrock_endpoint_url: str | None = None
+    mock_bedrock: bool = False
+    s3_data_bucket: str = "marketpulse-data"
+    s3_model_bucket: str = "marketpulse-models"
+
     log_level: str = "INFO"
     log_format: str = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 

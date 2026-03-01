@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
+
 import numpy as np
 import pandas as pd
 
@@ -9,7 +11,7 @@ import pandas as pd
 def calculate_safety_stock(
     forecast_df: pd.DataFrame,
     service_level: float = 0.95,
-) -> float:
+) -> tuple[float, bool]:
     """Calculate safety stock based on forecast uncertainty.
 
     Args:
@@ -17,10 +19,10 @@ def calculate_safety_stock(
         service_level: Target service level (default 95%).
 
     Returns:
-        Safety stock quantity as float.
+        Tuple of (safety_stock, festival_buffer_applied).
     """
     if forecast_df.empty:
-        return 0.0
+        return 0.0, False
 
     # Use the standard deviation implied by the confidence interval
     # For 95% CI: upper_95 = mean + 1.96*std, so std = (upper_95 - mean) / 1.96
@@ -31,7 +33,15 @@ def calculate_safety_stock(
     z_score = 1.65 if service_level >= 0.95 else 1.28
 
     safety_stock = z_score * avg_std * np.sqrt(len(forecast_df))
-    return max(0.0, float(safety_stock))
+
+    festival_buffer_applied = False
+    if "festival_score" in forecast_df.columns:
+        lead_window = forecast_df.head(max(1, min(30, len(forecast_df))))
+        if pd.to_numeric(lead_window["festival_score"], errors="coerce").fillna(0.0).gt(0.6).any():
+            safety_stock *= 1.3
+            festival_buffer_applied = True
+
+    return max(0.0, float(safety_stock)), festival_buffer_applied
 
 
 def calculate_reorder_point(
@@ -65,6 +75,7 @@ def calculate_order_quantity(
     current_inventory: int,
     reorder_point: float,
     forecast_df: pd.DataFrame,
+    supplier_pack_size: int = 1,
 ) -> int:
     """Calculate recommended order quantity.
 
@@ -74,7 +85,8 @@ def calculate_order_quantity(
         forecast_df: DataFrame with predicted_mean column.
 
     Returns:
-        Order quantity as integer (0 if no order needed).
+        Order quantity as integer (0 if no order needed), rounded up
+        to nearest supplier pack size.
     """
     if current_inventory >= reorder_point:
         return 0
@@ -82,8 +94,25 @@ def calculate_order_quantity(
     # Order enough to cover forecast period demand
     total_forecast_demand = float(forecast_df["predicted_mean"].sum())
     order_qty = max(0, int(np.ceil(total_forecast_demand + reorder_point - current_inventory)))
+    if supplier_pack_size > 1 and order_qty > 0:
+        order_qty = int(np.ceil(order_qty / supplier_pack_size) * supplier_pack_size)
 
     return order_qty
+
+
+def _parse_last_upload_date(last_upload_date: str | date | datetime | None) -> datetime | None:
+    if last_upload_date is None:
+        return None
+    if isinstance(last_upload_date, datetime):
+        return last_upload_date.astimezone(timezone.utc) if last_upload_date.tzinfo else last_upload_date.replace(tzinfo=timezone.utc)
+    if isinstance(last_upload_date, date):
+        return datetime.combine(last_upload_date, datetime.min.time(), tzinfo=timezone.utc)
+    if isinstance(last_upload_date, str):
+        try:
+            return datetime.fromisoformat(last_upload_date.replace("Z", "+00:00")).astimezone(timezone.utc)
+        except ValueError:
+            return None
+    return None
 
 
 def assess_risk_score(
@@ -152,6 +181,8 @@ def generate_inventory_decision_summary(
     current_inventory: int,
     lead_time_days: int,
     service_level: float = 0.95,
+    supplier_pack_size: int = 1,
+    last_upload_date: str | date | datetime | None = None,
 ) -> dict[str, float | int | str]:
     """Generate comprehensive inventory decision summary.
 
@@ -171,13 +202,32 @@ def generate_inventory_decision_summary(
             "reorder_point": 0.0,
             "safety_stock": 0.0,
             "risk_score": 0.0,
+            "festival_buffer_applied": False,
+            "data_stale_warning": False,
+            "pack_size_applied": False,
         }
 
-    safety_stock = calculate_safety_stock(forecast_df, service_level)
+    safety_stock, festival_buffer_applied = calculate_safety_stock(forecast_df, service_level)
     reorder_point = calculate_reorder_point(forecast_df, lead_time_days, safety_stock)
-    order_quantity = calculate_order_quantity(current_inventory, reorder_point, forecast_df)
+    baseline_order_quantity = calculate_order_quantity(
+        current_inventory,
+        reorder_point,
+        forecast_df,
+        supplier_pack_size=1,
+    )
+    order_quantity = calculate_order_quantity(
+        current_inventory,
+        reorder_point,
+        forecast_df,
+        supplier_pack_size=max(1, int(supplier_pack_size)),
+    )
+    pack_size_applied = max(1, int(supplier_pack_size)) > 1 and order_quantity != baseline_order_quantity
     risk_score = assess_risk_score(forecast_df, current_inventory, reorder_point)
     action = determine_action(order_quantity, risk_score)
+    parsed_upload = _parse_last_upload_date(last_upload_date)
+    data_stale_warning = False
+    if parsed_upload is not None:
+        data_stale_warning = parsed_upload < (datetime.now(timezone.utc) - timedelta(days=7))
 
     return {
         "recommended_action": action,
@@ -185,4 +235,7 @@ def generate_inventory_decision_summary(
         "reorder_point": round(reorder_point, 2),
         "safety_stock": round(safety_stock, 2),
         "risk_score": round(risk_score, 3),
+        "festival_buffer_applied": festival_buffer_applied,
+        "data_stale_warning": bool(data_stale_warning),
+        "pack_size_applied": pack_size_applied,
     }

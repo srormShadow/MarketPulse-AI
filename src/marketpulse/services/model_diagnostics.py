@@ -8,17 +8,19 @@ festival impact and lag sensitivity.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
-from sqlalchemy.orm import Session
 
 from marketpulse.services.feature_engineering import prepare_training_data
 from marketpulse.services.forecasting import train_model
 
+if TYPE_CHECKING:
+    from marketpulse.db.repository import DataRepository
 
-def analyze_category_model(session: Session, category: str) -> dict[str, Any]:
+
+def analyze_category_model(repo: DataRepository, category: str) -> dict[str, Any]:
     """Analyze a trained model for a specific category.
 
     Trains a BayesianRidge model for the given category and extracts the learned
@@ -26,7 +28,7 @@ def analyze_category_model(session: Session, category: str) -> dict[str, Any]:
     features the model considers most important for predicting demand.
 
     Args:
-        session: Active SQLAlchemy session.
+        repo: Active DataRepository backend.
         category: Product category name (e.g., "Snacks", "Edible Oil").
 
     Returns:
@@ -41,12 +43,12 @@ def analyze_category_model(session: Session, category: str) -> dict[str, Any]:
         ValueError: If category has insufficient data for training.
 
     Example:
-        >>> result = analyze_category_model(session, "Snacks")
+        >>> result = analyze_category_model(repo, "Snacks")
         >>> print(result["coefficients"]["festival_score"])
         12.5  # Positive coefficient indicates festival boost
     """
     # Prepare training data
-    X_train, y_train, full_df = prepare_training_data(session, category)
+    X_train, y_train, full_df = prepare_training_data(repo, category)
 
     if X_train.empty or len(X_train) < 7:
         raise ValueError(f"Insufficient data for category '{category}'")
@@ -74,7 +76,7 @@ def analyze_category_model(session: Session, category: str) -> dict[str, Any]:
 
 
 def compare_categories(
-    session: Session,
+    repo: DataRepository,
     categories: list[str],
 ) -> pd.DataFrame:
     """Compare learned coefficients across multiple categories.
@@ -84,7 +86,7 @@ def compare_categories(
     categories respond to the same features.
 
     Args:
-        session: Active SQLAlchemy session.
+        repo: Active DataRepository backend.
         categories: List of category names to compare.
 
     Returns:
@@ -105,7 +107,7 @@ def compare_categories(
 
     for category in categories:
         try:
-            analysis = analyze_category_model(session, category)
+            analysis = analyze_category_model(repo, category)
             row = {"category": category}
             row.update(analysis["coefficients"])
             row["intercept"] = analysis["intercept"]
@@ -123,14 +125,14 @@ def compare_categories(
 
 
 def rank_feature_importance(
-    session: Session,
+    repo: DataRepository,
     categories: list[str],
     feature: str,
 ) -> pd.DataFrame:
     """Rank categories by importance of a specific feature.
 
     Args:
-        session: Active SQLAlchemy session.
+        repo: Active DataRepository backend.
         categories: List of category names to compare.
         feature: Feature name to rank by (e.g., "festival_score", "lag_1").
 
@@ -153,7 +155,7 @@ def rank_feature_importance(
 
     for category in categories:
         try:
-            analysis = analyze_category_model(session, category)
+            analysis = analyze_category_model(repo, category)
             coef = analysis["coefficients"].get(feature, 0.0)
             results.append(
                 {
@@ -175,14 +177,14 @@ def rank_feature_importance(
     return df
 
 
-def summarize_category_behavior(session: Session, category: str) -> dict[str, Any]:
+def summarize_category_behavior(repo: DataRepository, category: str) -> dict[str, Any]:
     """Generate a behavioral summary for a category's model.
 
     Analyzes the trained model and provides human-readable insights about
     the category's demand patterns.
 
     Args:
-        session: Active SQLAlchemy session.
+        repo: Active DataRepository backend.
         category: Product category name.
 
     Returns:
@@ -200,7 +202,7 @@ def summarize_category_behavior(session: Session, category: str) -> dict[str, An
         >>> print(summary["summary"])
         "Snacks is highly festival-sensitive with strong momentum effects"
     """
-    analysis = analyze_category_model(session, category)
+    analysis = analyze_category_model(repo, category)
     coefs = analysis["coefficients"]
     importance = analysis["feature_importance"]
 
@@ -265,7 +267,7 @@ def summarize_category_behavior(session: Session, category: str) -> dict[str, An
 
 
 def compare_feature_sensitivity(
-    session: Session,
+    repo: DataRepository,
     categories: list[str],
 ) -> dict[str, dict[str, str]]:
     """Compare feature sensitivity across categories.
@@ -273,7 +275,7 @@ def compare_feature_sensitivity(
     Identifies which category is most sensitive to each feature type.
 
     Args:
-        session: Active SQLAlchemy session.
+        repo: Active DataRepository backend.
         categories: List of category names to compare.
 
     Returns:
@@ -293,7 +295,7 @@ def compare_feature_sensitivity(
     analyses = {}
     for category in categories:
         try:
-            analyses[category] = analyze_category_model(session, category)
+            analyses[category] = analyze_category_model(repo, category)
         except ValueError:
             continue
 

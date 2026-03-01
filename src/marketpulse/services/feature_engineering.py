@@ -1,45 +1,27 @@
-﻿"""Feature engineering utilities for category-level retail demand modeling."""
+"""Feature engineering utilities for category-level retail demand modeling."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
 
-from marketpulse.models.festival import Festival
-from marketpulse.models.sales import Sales
-from marketpulse.models.sku import SKU
+if TYPE_CHECKING:
+    from marketpulse.db.repository import DataRepository
 
 logger = logging.getLogger(__name__)
 
 
-def aggregate_category_sales(session: Session, category: str) -> pd.DataFrame:
+def aggregate_category_sales(repo: DataRepository, category: str) -> pd.DataFrame:
     """Aggregate daily sales totals for a given category.
 
-    Joins `Sales` and `SKU`, filters by category, groups by date, and returns
-    a date-sorted DataFrame with columns: `date`, `units_sold`.
+    Delegates to the active DataRepository backend and returns
+    a date-sorted DataFrame with columns: ``date``, ``units_sold``.
     """
-
-    stmt = (
-        select(Sales.date, func.sum(Sales.units_sold).label("units_sold"))
-        .join(SKU, Sales.sku_id == SKU.sku_id)
-        .where(SKU.category == category)
-        .group_by(Sales.date)
-        .order_by(Sales.date.asc())
-    )
-
-    rows = session.execute(stmt).all()
-    frame = pd.DataFrame(rows, columns=["date", "units_sold"])
-    if frame.empty:
-        return pd.DataFrame(columns=["date", "units_sold"])
-
-    frame["date"] = pd.to_datetime(frame["date"])
-    frame["units_sold"] = pd.to_numeric(frame["units_sold"], errors="coerce")
-    return frame.sort_values("date").reset_index(drop=True)
+    return repo.get_category_daily_sales(category)
 
 
 def add_time_index(df: pd.DataFrame) -> pd.DataFrame:
@@ -74,7 +56,7 @@ def add_weekday_feature(df: pd.DataFrame, one_hot_encode: bool = False) -> pd.Da
 
 def compute_festival_proximity(
     df: pd.DataFrame,
-    session: Session,
+    repo: DataRepository,
     category: str,
     k: float = 0.2,
 ) -> pd.DataFrame:
@@ -94,7 +76,7 @@ def compute_festival_proximity(
     out = out.sort_values("date").reset_index(drop=True)
 
     normalized_category = category.strip().lower()
-    festival_rows = session.execute(select(Festival.festival_name, Festival.date)).all()
+    festival_rows = repo.get_all_festival_dates()
     logger.info(
         "Festival proximity start | category=%s | festival_rows=%s",
         normalized_category,
@@ -242,7 +224,7 @@ def compute_festival_proximity(
     return out
 
 
-def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
+def add_lag_features(df: pd.DataFrame, stockout_threshold: float = 5.0) -> pd.DataFrame:
     """Add autoregressive lag features for time series forecasting.
 
     Adds the following features:
@@ -267,9 +249,14 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     out["lag_1"] = out["units_sold"].shift(1)
     out["lag_7"] = out["units_sold"].shift(7)
 
+    # Flag likely stockout days (demand near-zero can indicate suppressed demand from stockouts)
+    out["potential_stockout"] = pd.to_numeric(out["units_sold"], errors="coerce").fillna(0.0) <= float(stockout_threshold)
+
     # Create rolling features (min_periods ensures we have enough data)
     out["rolling_mean_7"] = out["units_sold"].rolling(window=7, min_periods=7).mean()
     out["rolling_std_7"] = out["units_sold"].rolling(window=7, min_periods=7).std()
+    stockout_window_count = out["potential_stockout"].astype(int).rolling(window=7, min_periods=7).sum()
+    out["stockout_suspected"] = stockout_window_count > 2
 
     # Drop rows with insufficient lag history (first 7 rows will have NaN)
     out = out.dropna(subset=["lag_1", "lag_7", "rolling_mean_7", "rolling_std_7"]).reset_index(drop=True)
@@ -278,10 +265,11 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def prepare_training_data(
-    session: Session,
+    repo: DataRepository,
     category: str,
     one_hot_encode_weekday: bool = False,
     k: float = 0.2,
+    stockout_threshold: float = 5.0,
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     """Build model-ready training data for a category with lag features.
 
@@ -299,13 +287,13 @@ def prepare_training_data(
     - engineered_df: full engineered DataFrame after cleaning
     """
 
-    aggregated = aggregate_category_sales(session, category)
+    aggregated = aggregate_category_sales(repo, category)
     engineered = add_time_index(aggregated)
     engineered = add_weekday_feature(engineered, one_hot_encode=one_hot_encode_weekday)
-    engineered = compute_festival_proximity(engineered, session, category, k=k)
+    engineered = compute_festival_proximity(engineered, repo, category, k=k)
 
     # Add lag features before dropping nulls
-    engineered = add_lag_features(engineered)
+    engineered = add_lag_features(engineered, stockout_threshold=stockout_threshold)
 
     required_columns: Sequence[str] = [
         "time_index",

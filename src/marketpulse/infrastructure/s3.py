@@ -1,0 +1,130 @@
+"""S3 utilities for CSV archival and model persistence."""
+
+from __future__ import annotations
+
+import io
+import pickle
+import re
+from datetime import datetime, timezone
+from typing import Any
+
+import boto3
+from botocore.exceptions import ClientError
+
+from marketpulse.core.config import get_settings
+
+
+def _boto_kwargs() -> dict[str, str]:
+    """Build boto3 kwargs from configured environment settings."""
+    settings = get_settings()
+    kwargs: dict[str, str] = {"region_name": settings.aws_region}
+
+    endpoint = settings.s3_endpoint_url or settings.s3_endpoint
+    if endpoint:
+        kwargs["endpoint_url"] = endpoint
+    if settings.aws_access_key_id:
+        kwargs["aws_access_key_id"] = settings.aws_access_key_id
+    if settings.aws_secret_access_key:
+        kwargs["aws_secret_access_key"] = settings.aws_secret_access_key
+    if settings.aws_session_token:
+        kwargs["aws_session_token"] = settings.aws_session_token
+    return kwargs
+
+
+def _s3_client():
+    return boto3.client("s3", **_boto_kwargs())
+
+
+def _slugify(value: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower())
+    return safe.strip("-") or "unknown"
+
+
+def upload_csv(file: bytes, category: str, filename: str | None = None) -> str:
+    """Upload CSV bytes to s3://<data-bucket>/uploads/<category>/..."""
+    settings = get_settings()
+    bucket = settings.s3_data_bucket
+    now = datetime.now(timezone.utc)
+    stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    safe_category = _slugify(category)
+    safe_filename = _slugify(filename or "upload") + ".csv"
+    key = f"uploads/{safe_category}/{stamp}_{safe_filename}"
+
+    _s3_client().put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=file,
+        ContentType="text/csv",
+    )
+    return f"s3://{bucket}/{key}"
+
+
+def save_model(model_object: Any, category: str) -> str:
+    """Serialize and store model object in S3 under category/latest.pkl."""
+    settings = get_settings()
+    bucket = settings.s3_model_bucket
+    safe_category = _slugify(category)
+    now = datetime.now(timezone.utc)
+    stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    version_key = f"{safe_category}/{stamp}.pkl"
+    latest_key = f"{safe_category}/latest.pkl"
+
+    payload = pickle.dumps(model_object)
+    client = _s3_client()
+    client.put_object(
+        Bucket=bucket,
+        Key=version_key,
+        Body=io.BytesIO(payload).getvalue(),
+        ContentType="application/octet-stream",
+    )
+    client.put_object(
+        Bucket=bucket,
+        Key=latest_key,
+        Body=io.BytesIO(payload).getvalue(),
+        ContentType="application/octet-stream",
+    )
+    return f"s3://{bucket}/{latest_key}"
+
+
+def load_model(category: str) -> Any | None:
+    """Load category model object from s3://<model-bucket>/<category>/latest.pkl."""
+    settings = get_settings()
+    bucket = settings.s3_model_bucket
+    safe_category = _slugify(category)
+    latest_key = f"{safe_category}/latest.pkl"
+
+    try:
+        response = _s3_client().get_object(Bucket=bucket, Key=latest_key)
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {"NoSuchKey", "404"}:
+            return None
+        raise
+
+    return pickle.loads(response["Body"].read())
+
+
+def list_model_versions(category: str) -> list[dict[str, Any]]:
+    """List model keys for a category with last-modified timestamps."""
+    settings = get_settings()
+    bucket = settings.s3_model_bucket
+    safe_category = _slugify(category)
+    prefix = f"{safe_category}/"
+    client = _s3_client()
+
+    paginator = client.get_paginator("list_objects_v2")
+    versions: list[dict[str, Any]] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key = str(obj["Key"])
+            if not key.endswith(".pkl"):
+                continue
+            versions.append(
+                {
+                    "key": key,
+                    "timestamp": obj["LastModified"].astimezone(timezone.utc).isoformat(),
+                    "size_bytes": int(obj["Size"]),
+                }
+            )
+
+    versions.sort(key=lambda item: item["timestamp"], reverse=True)
+    return versions

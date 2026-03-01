@@ -12,6 +12,22 @@ from marketpulse.schemas.upload import (
     ValidationErrorItem,
     ValidationErrorResponse,
 )
+from marketpulse.schemas.forecast import (
+    BatchForecastRequest,
+    BatchForecastResponse,
+    ForecastDataPoint,
+    ForecastRequest,
+    ForecastResponse,
+    InventoryDecision,
+    ForecastErrorResponse,
+)
+from marketpulse.schemas.insights import (
+    BatchInsightItem,
+    BatchInsightRequest,
+    BatchInsightResponse,
+    InsightRequest,
+    InsightResponse,
+)
 
 __all__ = [
     "CsvUploadRequest",
@@ -24,4 +40,16 @@ __all__ = [
     "SalesCountResponse",
     "FestivalItemResponse",
     "FestivalListResponse",
+    "InsightRequest",
+    "InsightResponse",
+    "BatchInsightItem",
+    "BatchInsightRequest",
+    "BatchInsightResponse",
+    "BatchForecastRequest",
+    "BatchForecastResponse",
+    "ForecastDataPoint",
+    "ForecastRequest",
+    "ForecastResponse",
+    "InventoryDecision",
+    "ForecastErrorResponse",
 ]

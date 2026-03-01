@@ -6,15 +6,14 @@ import io
 import logging
 import re
 from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from fastapi import UploadFile
-from sqlalchemy import select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.orm import Session
+from marketpulse.services.ingestion import archive_csv_upload
 
-from marketpulse.models.sales import Sales
-from marketpulse.models.sku import SKU
+if TYPE_CHECKING:
+    from marketpulse.db.repository import DataRepository
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +55,7 @@ class CsvIngestionError(Exception):
         self.validation_errors = validation_errors or []
 
 
-async def ingest_csv(file: UploadFile, db: Session) -> tuple[str, int, dict[str, int]]:
+async def ingest_csv(file: UploadFile, repo: DataRepository) -> tuple[str, int, dict[str, object]]:
     """Ingest a CSV upload as SKU master or Sales data."""
 
     csv_bytes = await file.read()
@@ -88,24 +87,36 @@ async def ingest_csv(file: UploadFile, db: Session) -> tuple[str, int, dict[str,
     dataframe.columns = [str(column).strip().lower() for column in dataframe.columns]
     file_type = _detect_file_type(set(dataframe.columns))
     _validate_schema_version(dataframe)
+    try:
+        s3_uri = archive_csv_upload(
+            file_bytes=csv_bytes,
+            category=file_type,
+            filename=file.filename,
+        )
+    except Exception as exc:
+        raise CsvIngestionError(
+            "Failed to upload CSV to S3",
+            validation_errors=[{"field": "file", "issue": "S3 upload failed"}],
+        ) from exc
 
     metrics = IngestionMetrics(rows_received=len(dataframe))
 
     try:
         if file_type == "sales":
-            inserted = _upsert_sales(dataframe, db, metrics)
+            inserted = _upsert_sales(dataframe, repo, metrics)
         else:
-            inserted = _upsert_skus(dataframe, db, metrics)
-        db.commit()
+            inserted = _upsert_skus(dataframe, repo, metrics)
+        repo.commit()
     except CsvIngestionError:
-        db.rollback()
+        repo.rollback()
         raise
     except Exception:
-        db.rollback()
+        repo.rollback()
         logger.exception("Unhandled ingestion failure")
         raise
 
     metadata = asdict(metrics)
+    metadata["s3_uri"] = s3_uri
     logger.info(
         "CSV ingestion complete | file_type=%s | records_inserted=%s | metadata=%s",
         file_type,
@@ -195,7 +206,7 @@ def _drop_exact_duplicates(frame: pd.DataFrame, metrics: IngestionMetrics) -> pd
     return deduped
 
 
-def _upsert_skus(dataframe: pd.DataFrame, db: Session, metrics: IngestionMetrics) -> int:
+def _upsert_skus(dataframe: pd.DataFrame, repo: DataRepository, metrics: IngestionMetrics) -> int:
     frame = _drop_exact_duplicates(dataframe.copy(), metrics)
 
     frame["sku_id"] = _normalize_sku_series(frame["sku_id"])
@@ -251,22 +262,11 @@ def _upsert_skus(dataframe: pd.DataFrame, db: Session, metrics: IngestionMetrics
         ["sku_id", "product_name", "category", "mrp", "cost", "current_inventory"]
     ].to_dict(orient="records")
 
-    statement = sqlite_insert(SKU).values(records)
-    upsert = statement.on_conflict_do_update(
-        index_elements=[SKU.sku_id],
-        set_={
-            "product_name": statement.excluded.product_name,
-            "category": statement.excluded.category,
-            "mrp": statement.excluded.mrp,
-            "cost": statement.excluded.cost,
-            "current_inventory": statement.excluded.current_inventory,
-        },
-    )
-    db.execute(upsert)
+    repo.upsert_skus(records)
     return len(records)
 
 
-def _upsert_sales(dataframe: pd.DataFrame, db: Session, metrics: IngestionMetrics) -> int:
+def _upsert_sales(dataframe: pd.DataFrame, repo: DataRepository, metrics: IngestionMetrics) -> int:
     frame = _drop_exact_duplicates(dataframe.copy(), metrics)
 
     frame["sku_id"] = _normalize_sku_series(frame["sku_id"])
@@ -305,10 +305,7 @@ def _upsert_sales(dataframe: pd.DataFrame, db: Session, metrics: IngestionMetric
     if removed_logical > 0:
         logger.info("Logical Sales duplicates removed | count=%s", removed_logical)
 
-    existing_skus = {
-        row[0]
-        for row in db.execute(select(SKU.sku_id).where(SKU.sku_id.in_(valid_frame["sku_id"].unique().tolist())))
-    }
+    existing_skus = repo.sku_ids_exist(valid_frame["sku_id"].unique().tolist())
     unknown_sku_mask = ~valid_frame["sku_id"].isin(existing_skus)
     unknown_dropped = int(unknown_sku_mask.sum())
     if unknown_dropped > 0:
@@ -329,15 +326,7 @@ def _upsert_sales(dataframe: pd.DataFrame, db: Session, metrics: IngestionMetric
     metrics.rows_cleaned = len(valid_frame)
 
     records = _sales_records(valid_frame)
-
-    statement = sqlite_insert(Sales).values(records)
-    upsert = statement.on_conflict_do_update(
-        index_elements=[Sales.date, Sales.sku_id],
-        set_={
-            "units_sold": statement.excluded.units_sold,
-        },
-    )
-    db.execute(upsert)
+    repo.upsert_sales(records)
     return len(records)
 
 

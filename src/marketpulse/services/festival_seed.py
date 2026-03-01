@@ -1,29 +1,29 @@
-﻿"""Utility functions for seeding festival reference data."""
+"""Utility functions for seeding festival reference data."""
+
+from __future__ import annotations
 
 from datetime import date
 import logging
+from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-
-from marketpulse.models.festival import Festival
+if TYPE_CHECKING:
+    from marketpulse.db.repository import DataRepository
 
 logger = logging.getLogger(__name__)
 
 
-def seed_festivals_if_empty(db: Session) -> None:
+def seed_festivals_if_empty(repo: DataRepository) -> None:
     """Seed baseline Indian festival data if the festival table is empty."""
 
-    count = db.scalar(select(func.count()).select_from(Festival))
+    count = repo.count_festivals()
     if count and count > 0:
         logger.info("Festival seed skipped; existing records found")
         return
 
     festivals = [
-        Festival(festival_name="Diwali", date=date(2024, 11, 1), category="general", historical_uplift=0.30),
-        Festival(festival_name="Pongal", date=date(2024, 1, 15), category="grocery", historical_uplift=0.22),
-        Festival(festival_name="Christmas", date=date(2024, 12, 25), category="gifting", historical_uplift=0.18),
+        {"festival_name": "Diwali", "date": date(2024, 11, 1), "category": "general", "historical_uplift": 0.30},
+        {"festival_name": "Pongal", "date": date(2024, 1, 15), "category": "grocery", "historical_uplift": 0.22},
+        {"festival_name": "Christmas", "date": date(2024, 12, 25), "category": "gifting", "historical_uplift": 0.18},
     ]
-    db.add_all(festivals)
-    db.commit()
+    repo.seed_festivals(festivals)
     logger.info("Festival seed complete | records_inserted=%s", len(festivals))
