@@ -2,11 +2,15 @@
 
 import logging
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, File, UploadFile, status
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 
-from marketpulse.db.session import get_db
+from marketpulse.db.get_repo import get_repo
+
+if TYPE_CHECKING:
+    from marketpulse.db.repository import DataRepository
 from marketpulse.schemas.upload import (
     CsvUploadResponse,
     ErrorResponse,
@@ -28,9 +32,9 @@ router = APIRouter(tags=["ingestion"])
 )
 async def upload_csv(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
+    repo: "DataRepository" = Depends(get_repo),
 ) -> CsvUploadResponse | JSONResponse:
-    """Upload SKU or Sales CSV and store it in SQLite."""
+    """Upload SKU or Sales CSV and store it in the database."""
 
     if not file.filename or not file.filename.lower().endswith(".csv"):
         return JSONResponse(
@@ -43,7 +47,7 @@ async def upload_csv(
         )
 
     try:
-        file_type, inserted, metadata = await ingest_csv(file, db)
+        file_type, inserted, metadata = await ingest_csv(file, repo)
     except CsvIngestionError as exc:
         errors = exc.validation_errors or [{"field": "file", "issue": exc.message}]
         return JSONResponse(

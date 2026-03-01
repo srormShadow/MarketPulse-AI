@@ -2,19 +2,66 @@
 
 from __future__ import annotations
 
-from typing import cast
+import logging
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 from sklearn.linear_model import BayesianRidge
 from sklearn.preprocessing import StandardScaler
-from sqlalchemy.orm import Session
 
 from marketpulse.services.feature_engineering import (
     compute_festival_proximity,
     prepare_training_data,
 )
+from marketpulse.infrastructure.s3 import load_model, save_model
+
+if TYPE_CHECKING:
+    from marketpulse.db.repository import DataRepository
+
+logger = logging.getLogger(__name__)
+
+
+def validate_forecast_output(forecast_results: pd.DataFrame) -> dict[str, object]:
+    """Run non-fatal sanity checks on forecast output.
+
+    Returns:
+        Dict with:
+        - valid: bool
+        - warnings: list[str] containing machine-friendly warning ids
+    """
+    warnings: list[str] = []
+    if forecast_results is None or forecast_results.empty:
+        return {"valid": True, "warnings": warnings}
+
+    predicted = pd.to_numeric(forecast_results.get("predicted_mean"), errors="coerce").fillna(0.0)
+    if predicted.empty:
+        return {"valid": True, "warnings": warnings}
+
+    zero_ratio = float((predicted <= 0).sum()) / float(len(predicted))
+    if zero_ratio > 0.80:
+        warnings.append("model_collapse")
+
+    baseline = predicted.shift(1).rolling(window=7, min_periods=1).mean()
+    baseline = baseline.where(baseline > 0, predicted.rolling(window=7, min_periods=1).mean())
+    spike_mask = predicted > (5.0 * baseline)
+    if bool(spike_mask.fillna(False).any()):
+        warnings.append("spike_anomaly")
+
+    upper = pd.to_numeric(forecast_results.get("upper_95"), errors="coerce").fillna(predicted)
+    std = (upper - predicted).clip(lower=0.0) / 1.96
+    high_uncertainty_ratio = float((std > predicted).sum()) / float(len(predicted))
+    if high_uncertainty_ratio > 0.50:
+        warnings.append("high_uncertainty")
+
+    first = float(predicted.iloc[0])
+    last = float(predicted.iloc[-1])
+    if first > 0 and last > (3.0 * first):
+        warnings.append("runaway_trend")
+
+    return {"valid": len(warnings) == 0, "warnings": warnings}
 
 
 def train_model(X: pd.DataFrame, y: pd.Series) -> tuple[BayesianRidge, StandardScaler]:
@@ -88,7 +135,7 @@ def predict_with_uncertainty(
 
 
 def forecast_next_n_days(
-    session: Session,
+    repo: DataRepository,
     category: str,
     n_days: int = 30,
 ) -> pd.DataFrame:
@@ -107,7 +154,7 @@ def forecast_next_n_days(
     4. Return forecast with mean and 95% confidence intervals.
 
     Args:
-        session: Active SQLAlchemy session.
+        repo: Active DataRepository backend.
         category: Category name passed to feature engineering pipeline.
         n_days: Number of future days to forecast.
 
@@ -118,11 +165,46 @@ def forecast_next_n_days(
     if n_days <= 0:
         raise ValueError("n_days must be a positive integer")
 
-    X_train, y_train, full_df = prepare_training_data(session, category)
+    X_train, y_train, full_df = prepare_training_data(repo, category)
     if full_df.empty or len(full_df) < 7:
         raise ValueError("Insufficient historical data to train forecasting model")
+    stockout_days_detected = int(
+        pd.to_numeric(full_df.get("potential_stockout", pd.Series(dtype=int)), errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .sum()
+    )
 
-    model, scaler = train_model(X_train, y_train)
+    model: BayesianRidge | None = None
+    scaler: StandardScaler | None = None
+
+    try:
+        cached_model_obj = load_model(category)
+        if isinstance(cached_model_obj, dict):
+            loaded_model = cached_model_obj.get("model")
+            loaded_scaler = cached_model_obj.get("scaler")
+            if isinstance(loaded_model, BayesianRidge) and isinstance(loaded_scaler, StandardScaler):
+                model = loaded_model
+                scaler = loaded_scaler
+                logger.info("Loaded forecast model from S3 for category=%s", category)
+    except Exception:
+        logger.exception("Failed to load model from S3 for category=%s", category)
+
+    if model is None or scaler is None:
+        model, scaler = train_model(X_train, y_train)
+        try:
+            save_model(
+                model_object={
+                    "model": model,
+                    "scaler": scaler,
+                    "trained_at": datetime.now(timezone.utc).isoformat(),
+                    "feature_columns": list(X_train.columns),
+                },
+                category=category,
+            )
+            logger.info("Saved trained forecast model to S3 for category=%s", category)
+        except Exception:
+            logger.exception("Failed to save model to S3 for category=%s", category)
 
     last_date = pd.to_datetime(full_df["date"].max())
     last_time_index = int(full_df["time_index"].max())
@@ -145,7 +227,7 @@ def forecast_next_n_days(
 
     festival_features = compute_festival_proximity(
         future_df[["date"]].copy(),
-        session,
+        repo,
         category,
     )
     future_df["festival_score"] = festival_features["festival_score"].astype(float)
@@ -211,7 +293,13 @@ def forecast_next_n_days(
             "predicted_mean": predictions_mean,
             "lower_95": predictions_lower,
             "upper_95": predictions_upper,
+            "festival_score": future_df["festival_score"].astype(float).tolist(),
         }
     )
+    result.attrs["training_summary"] = {
+        "category": category,
+        "training_rows": int(len(full_df)),
+        "stockout_days_detected": stockout_days_detected,
+    }
 
     return result
