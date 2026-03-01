@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from marketpulse.db.repository import SQLiteRepository
 from marketpulse.models.festival import Festival
 from marketpulse.models.sales import Sales
 from marketpulse.models.sku import SKU
@@ -161,11 +162,11 @@ def test_no_nan_in_lag_features(db_session):
     assert not result["rolling_std_7"].isna().any()
 
 
-def test_prepare_training_data_includes_lag_features(db_session):
+def test_prepare_training_data_includes_lag_features(db_session, repo):
     """Test that prepare_training_data includes lag features in X."""
     _seed_lag_test_data(db_session)
 
-    X, y, full_df = prepare_training_data(db_session, "LagTest")
+    X, y, full_df = prepare_training_data(repo, "LagTest")
 
     # Check that lag features are in X
     assert "lag_1" in X.columns
@@ -179,55 +180,55 @@ def test_prepare_training_data_includes_lag_features(db_session):
     assert "festival_score" in X.columns
 
 
-def test_prepare_training_data_no_nan_leakage(db_session):
+def test_prepare_training_data_no_nan_leakage(db_session, repo):
     """Test that prepare_training_data has no NaN values in features."""
     _seed_lag_test_data(db_session)
 
-    X, y, full_df = prepare_training_data(db_session, "LagTest")
+    X, y, full_df = prepare_training_data(repo, "LagTest")
 
     # Check no NaN in any feature
     assert not X.isna().any().any()
     assert not y.isna().any()
 
 
-def test_recursive_forecast_no_nan(db_session):
+def test_recursive_forecast_no_nan(db_session, repo):
     """Test that recursive forecasting produces no NaN values."""
     _seed_lag_test_data(db_session)
 
-    forecast = forecast_next_n_days(db_session, "LagTest", n_days=14)
+    forecast = forecast_next_n_days(repo, "LagTest", n_days=14)
 
     # Check no NaN in forecast
     assert not forecast.isna().any().any()
 
 
-def test_recursive_forecast_predictions_vary(db_session):
+def test_recursive_forecast_predictions_vary(db_session, repo):
     """Test that recursive predictions are not constant."""
     _seed_lag_test_data(db_session)
 
-    forecast = forecast_next_n_days(db_session, "LagTest", n_days=14)
+    forecast = forecast_next_n_days(repo, "LagTest", n_days=14)
 
     # Predictions should vary
     assert forecast["predicted_mean"].nunique() > 1
 
 
-def test_recursive_forecast_uses_previous_predictions(db_session):
+def test_recursive_forecast_uses_previous_predictions(db_session, repo):
     """Test that recursive forecasting uses previous predictions for lag features."""
     _seed_lag_test_data(db_session)
 
     # Generate two forecasts with different horizons
-    forecast_7 = forecast_next_n_days(db_session, "LagTest", n_days=7)
-    forecast_14 = forecast_next_n_days(db_session, "LagTest", n_days=14)
+    forecast_7 = forecast_next_n_days(repo, "LagTest", n_days=7)
+    forecast_14 = forecast_next_n_days(repo, "LagTest", n_days=14)
 
     # First 7 predictions should be identical (same recursive path)
     for i in range(7):
         assert abs(forecast_7.iloc[i]["predicted_mean"] - forecast_14.iloc[i]["predicted_mean"]) < 0.01
 
 
-def test_recursive_forecast_uncertainty_grows(db_session):
+def test_recursive_forecast_uncertainty_grows(db_session, repo):
     """Test that uncertainty grows with forecast horizon."""
     _seed_lag_test_data(db_session)
 
-    forecast = forecast_next_n_days(db_session, "LagTest", n_days=30)
+    forecast = forecast_next_n_days(repo, "LagTest", n_days=30)
 
     # Calculate uncertainty width
     width = forecast["upper_95"] - forecast["lower_95"]
@@ -244,6 +245,7 @@ def test_recursive_forecast_uncertainty_grows(db_session):
 def test_recursive_forecast_with_varying_pattern(db_session):
     """Test recursive forecasting with more complex pattern."""
     session = db_session
+    repo = SQLiteRepository(session)
 
     # Create data with weekly pattern
     session.add(
@@ -268,7 +270,7 @@ def test_recursive_forecast_with_varying_pattern(db_session):
 
     session.commit()
 
-    forecast = forecast_next_n_days(session, "PatternTest", n_days=14)
+    forecast = forecast_next_n_days(repo, "PatternTest", n_days=14)
 
     # Should capture weekly pattern (predictions should vary)
     assert forecast["predicted_mean"].std() > 1.0
@@ -277,6 +279,7 @@ def test_recursive_forecast_with_varying_pattern(db_session):
 def test_lag_features_with_minimum_data(db_session):
     """Test that lag features work with minimum required data."""
     session = db_session
+    repo = SQLiteRepository(session)
 
     session.add(
         SKU(
@@ -296,18 +299,18 @@ def test_lag_features_with_minimum_data(db_session):
 
     session.commit()
 
-    X, y, full_df = prepare_training_data(session, "MinTest")
+    X, y, full_df = prepare_training_data(repo, "MinTest")
 
     # Should have 3 rows after dropping first 7 for lag features
     assert len(X) == 3
     assert len(y) == 3
 
 
-def test_recursive_forecast_confidence_intervals_valid(db_session):
+def test_recursive_forecast_confidence_intervals_valid(db_session, repo):
     """Test that confidence intervals are valid throughout recursive forecast."""
     _seed_lag_test_data(db_session)
 
-    forecast = forecast_next_n_days(db_session, "LagTest", n_days=30)
+    forecast = forecast_next_n_days(repo, "LagTest", n_days=30)
 
     # Check all confidence intervals are valid
     assert (forecast["lower_95"] <= forecast["predicted_mean"]).all()
@@ -330,11 +333,11 @@ def test_lag_features_preserve_order(db_session):
     assert (result["date"].diff().dropna().dt.days == 1).all()
 
 
-def test_recursive_forecast_dates_sequential(db_session):
+def test_recursive_forecast_dates_sequential(db_session, repo):
     """Test that forecast dates are sequential."""
     _seed_lag_test_data(db_session)
 
-    forecast = forecast_next_n_days(db_session, "LagTest", n_days=20)
+    forecast = forecast_next_n_days(repo, "LagTest", n_days=20)
 
     # Check dates are sequential
     date_diffs = pd.to_datetime(forecast["date"]).diff().dropna().dt.days

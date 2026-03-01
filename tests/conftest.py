@@ -15,7 +15,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from marketpulse.db.base import Base
-from marketpulse.db.session import get_db
+from marketpulse.db.get_repo import get_repo
+from marketpulse.db.repository import SQLiteRepository
 from marketpulse.main import app
 
 
@@ -60,13 +61,19 @@ def db_session(test_engine) -> Generator[Session, None, None]:
 
 
 @pytest.fixture(scope="function")
+def repo(db_session: Session) -> Generator[SQLiteRepository, None, None]:
+    """Wrap the test session in a SQLiteRepository for service-level tests."""
+    yield SQLiteRepository(db_session)
+
+
+@pytest.fixture(scope="function")
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     """Create a TestClient with DB dependency overridden to isolated session."""
 
-    def override_get_db() -> Generator[Session, None, None]:
-        yield db_session
+    def override_get_repo() -> Generator[SQLiteRepository, None, None]:
+        yield SQLiteRepository(db_session)
 
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_repo] = override_get_repo
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

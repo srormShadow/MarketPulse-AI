@@ -5,6 +5,7 @@ from datetime import date
 from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 
+from marketpulse.db.repository import SQLiteRepository
 from marketpulse.models.festival import Festival
 from marketpulse.models.sales import Sales
 from marketpulse.models.sku import SKU
@@ -51,8 +52,9 @@ def test_duplicate_sku_upsert_does_not_create_multiple_rows(client, db_session, 
 
 
 def test_festival_seed_is_idempotent(db_session):
-    seed_festivals_if_empty(db_session)
-    seed_festivals_if_empty(db_session)
+    repo = SQLiteRepository(db_session)
+    seed_festivals_if_empty(repo)
+    seed_festivals_if_empty(repo)
 
     rows = db_session.scalars(select(Festival)).all()
     assert len(rows) == 3
