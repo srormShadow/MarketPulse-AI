@@ -1,23 +1,55 @@
-import React, { useState } from 'react';
-import { LayoutDashboard, BrainCircuit, Database, Zap } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { LayoutDashboard, BrainCircuit, Database, Zap, CalendarDays } from 'lucide-react';
 import PortfolioOverview from './pages/PortfolioOverview';
 import CategoryIntelligence from './pages/CategoryIntelligence';
 import DataManagement from './pages/DataManagement';
+import FestivalIntelligence from './pages/FestivalIntelligence';
+import { API_BASE_URL, healthCheck } from './api/client';
 
 const tabs = [
   { id: 'portfolio',    label: 'Portfolio Overview',    icon: LayoutDashboard },
   { id: 'intelligence', label: 'Category Intelligence', icon: BrainCircuit },
   { id: 'data',         label: 'Data Management',       icon: Database },
+  { id: 'festival',     label: 'Festival Intelligence', icon: CalendarDays },
 ];
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('portfolio');
+  const [backendReachable, setBackendReachable] = useState(true);
+  const [connectionChecked, setConnectionChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const runHealthCheck = async () => {
+      try {
+        await healthCheck();
+        if (!cancelled) {
+          setBackendReachable(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setBackendReachable(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setConnectionChecked(true);
+        }
+      }
+    };
+
+    runHealthCheck();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const renderPage = () => {
     switch (activeTab) {
       case 'portfolio':    return <PortfolioOverview />;
       case 'intelligence': return <CategoryIntelligence />;
       case 'data':         return <DataManagement />;
+      case 'festival':     return <FestivalIntelligence />;
       default:             return null;
     }
   };
@@ -26,6 +58,14 @@ const App = () => {
     <div className="min-h-screen bg-[#0B1220] text-[#E2E8F0] font-sans selection:bg-blue-500/30">
       {/* Header */}
       <header className="max-w-[1400px] mx-auto px-6 pt-8 pb-6">
+        {connectionChecked && !backendReachable && (
+          <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-200 text-sm">
+            Backend is currently unreachable. Check API Gateway/ECS health and
+            <span className="ml-1 font-mono text-amber-100">
+              VITE_API_BASE_URL={API_BASE_URL || "(not set)"}
+            </span>.
+          </div>
+        )}
         <div className="flex justify-between items-end">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-blue-500/10 rounded-xl border border-blue-500/20">
