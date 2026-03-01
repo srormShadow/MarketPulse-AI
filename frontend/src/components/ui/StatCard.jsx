@@ -9,7 +9,7 @@ const colorMap = {
   purple:  { border: 'border-purple-500/30',  bg: 'bg-purple-500/10',  text: 'text-purple-400',  glow: 'shadow-purple-500/10' },
 };
 
-const StatCard = ({ label, value, icon, trend, trendValue, accentColor = 'blue', className }) => {
+const StatCard = ({ label, value, icon, trend, trendValue, accentColor = 'blue', context, className }) => {
   const colors = colorMap[accentColor] || colorMap.blue;
   const TrendIcon = trend === 'up' ? TrendingUp : trend === 'down' ? TrendingDown : Minus;
   const trendColor = trend === 'up' ? 'text-emerald-400' : trend === 'down' ? 'text-red-400' : 'text-[#64748B]';
@@ -34,6 +34,9 @@ const StatCard = ({ label, value, icon, trend, trendValue, accentColor = 'blue',
       </div>
       <p className="text-xs uppercase tracking-wider text-[#94A3B8] font-semibold">{label}</p>
       <p className={`text-2xl font-bold mt-1 ${colors.text}`}>{value}</p>
+      {context && (
+        <p className="text-xs text-[#94A3B8] mt-2">{context}</p>
+      )}
     </div>
   );
 };

@@ -1,185 +1,449 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Package, FileSpreadsheet, CloudUpload, CheckCircle2,
-  AlertCircle, Info, Clock, HardDrive, Rows3, Trash2,
+  Package, FileSpreadsheet, CloudUpload, CheckCircle2, AlertCircle, Info, Clock,
+  ChevronDown, ChevronUp, RefreshCw, Database, ShieldAlert,
 } from 'lucide-react';
 import GlassCard from '../components/ui/GlassCard';
+import { apiClient } from '../api/client';
 
-// ── Mock Data ────────────────────────────────────────────────
+const CATEGORIES = ['Snacks', 'Staples', 'Edible Oil'];
+const DEFAULT_INVENTORY = { Snacks: 2800, Staples: 5100, 'Edible Oil': 1900 };
+const DEFAULT_LEAD_TIMES = { Snacks: 5, Staples: 7, 'Edible Oil': 10 };
 
-const recentActivity = [
-  { id: 1, filename: 'sales_q4_2025.csv',        date: '2025-12-15', rows: 12450, status: 'success', size: '2.4 MB' },
-  { id: 2, filename: 'sku_master_dec.csv',        date: '2025-12-10', rows: 3200,  status: 'success', size: '890 KB' },
-  { id: 3, filename: 'demand_forecast_input.csv', date: '2025-12-01', rows: 8900,  status: 'warning', size: '1.8 MB' },
-  { id: 4, filename: 'sales_q3_2025.csv',        date: '2025-09-30', rows: 11200, status: 'success', size: '2.1 MB' },
-];
+const freshnessTone = (stale) => (stale ? 'text-red-300' : 'text-emerald-300');
 
-const categoryDefaults = [
-  { name: 'Snacks',     stock: 2800, icon: '🍿' },
-  { name: 'Staples',    stock: 5100, icon: '🌾' },
-  { name: 'Edible Oil', stock: 1900, icon: '🫒' },
-];
+const parseCsvSummary = async (file) => {
+  const text = await file.text();
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (!lines.length) {
+    return {
+      totalRows: 0,
+      acceptedRows: 0,
+      rejectedRows: 0,
+      rejectedReason: 'Empty CSV',
+      dateRange: 'n/a',
+      categoriesDetected: [],
+      modelsWillRetrain: false,
+    };
+  }
 
-// ── Component ────────────────────────────────────────────────
+  const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
+  const dateIdx = header.indexOf('date');
+  const categoryIdx = header.indexOf('category');
+  const unitsIdx = header.indexOf('units_sold');
+
+  const missing = [];
+  if (dateIdx < 0) missing.push('date');
+  if (unitsIdx < 0) missing.push('units_sold');
+
+  let acceptedRows = 0;
+  let rejectedRows = 0;
+  const categories = new Set();
+  const dates = [];
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const cols = lines[i].split(',').map((c) => c.trim());
+    const dateVal = dateIdx >= 0 ? cols[dateIdx] : '';
+    const unitsVal = unitsIdx >= 0 ? cols[unitsIdx] : '';
+    if (!dateVal || Number.isNaN(Number(unitsVal))) {
+      rejectedRows += 1;
+      continue;
+    }
+    acceptedRows += 1;
+    dates.push(dateVal);
+    if (categoryIdx >= 0 && cols[categoryIdx]) categories.add(cols[categoryIdx]);
+  }
+
+  const sortedDates = dates
+    .map((d) => new Date(d))
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => a - b);
+
+  const dateRange = sortedDates.length
+    ? `${sortedDates[0].toISOString().slice(0, 10)} to ${sortedDates[sortedDates.length - 1].toISOString().slice(0, 10)}`
+    : 'n/a';
+
+  return {
+    totalRows: Math.max(0, lines.length - 1),
+    acceptedRows,
+    rejectedRows,
+    rejectedReason: missing.length ? `Missing required columns: ${missing.join(', ')}` : 'Invalid date or units_sold value',
+    dateRange,
+    categoriesDetected: [...categories],
+    modelsWillRetrain: acceptedRows > 0,
+  };
+};
 
 const DataManagement = () => {
   const [isDragOver, setIsDragOver] = useState(false);
-  const [inventoryValues, setInventoryValues] = useState(
-    Object.fromEntries(categoryDefaults.map((c) => [c.name, c.stock]))
-  );
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [inventoryValues, setInventoryValues] = useState(DEFAULT_INVENTORY);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState(null);
+  const [uploadError, setUploadError] = useState('');
+  const [uploadSummary, setUploadSummary] = useState(null);
+  const [freshnessRows, setFreshnessRows] = useState([]);
+  const [modelRows, setModelRows] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
+  const [recommendationFallback, setRecommendationFallback] = useState(false);
+  const [retrainingCategory, setRetrainingCategory] = useState('');
 
-  const handleInventoryChange = (category, value) => {
-    setInventoryValues((prev) => ({ ...prev, [category]: value }));
+  const loadOperationalData = async () => {
+    const batchPayload = {
+      categories: CATEGORIES,
+      n_days: 30,
+      inventory: inventoryValues,
+      lead_times: DEFAULT_LEAD_TIMES,
+    };
+
+    const [batchResult, recommendationsResult] = await Promise.allSettled([
+      apiClient.post('/forecast/batch', batchPayload),
+      apiClient.get('/recommendations/recent?limit=10'),
+    ]);
+
+    if (batchResult.status === 'fulfilled') {
+      const rows = Array.isArray(batchResult.value?.data) ? batchResult.value.data : [];
+      const freshness = rows.map((row) => {
+        const localTs = localStorage.getItem(`last_upload_${row.category}`);
+        return {
+          category: row.category,
+          lastUpload: row.last_upload_date || localTs || 'Unknown',
+          stale: Boolean(row.data_stale || row?.decision?.data_stale_warning),
+        };
+      });
+      setFreshnessRows(freshness);
+
+      const models = rows.map((row) => {
+        const decision = row?.decision || {};
+        const risk = Number(decision?.risk_score || 0);
+        const trainingPoints = Array.isArray(row?.forecast) ? row.forecast.length : 0;
+        const status = risk >= 0.7 ? 'degraded' : (risk >= 0.4 ? 'watch' : 'healthy');
+        const diagnosticsHealth = localStorage.getItem(`diag_health_${row.category}`);
+        return {
+          category: row.category,
+          lastTrained: localStorage.getItem(`model_trained_${row.category}`) || 'Unknown',
+          trainingPoints,
+          health: diagnosticsHealth || status,
+        };
+      });
+      setModelRows(models);
+
+      const fallbackRecommendations = rows.map((row, idx) => ({
+        id: `${row.category}-${idx}`,
+        date: new Date().toISOString(),
+        category: row.category,
+        action: row?.decision?.recommended_action || 'n/a',
+        order_quantity: Number(row?.decision?.order_quantity || 0),
+        risk_score: Number(row?.decision?.risk_score || 0),
+      }));
+
+      if (recommendationsResult.status !== 'fulfilled') {
+        setRecommendationFallback(true);
+        setRecommendations(fallbackRecommendations.slice(0, 10));
+      }
+    }
+
+    if (recommendationsResult.status === 'fulfilled') {
+      const items = recommendationsResult.value?.data?.items || recommendationsResult.value?.data?.recommendations || [];
+      setRecommendationFallback(false);
+      setRecommendations(Array.isArray(items) ? items.slice(0, 10) : []);
+    }
+  };
+
+  useEffect(() => {
+    loadOperationalData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const anyStaleData = useMemo(() => freshnessRows.some((row) => row.stale), [freshnessRows]);
+
+  const onFileSelected = async (file) => {
+    if (!file) return;
+    setSelectedFile(file);
+    setUploadStatus(null);
+    setUploadError('');
+    const summary = await parseCsvSummary(file);
+    setUploadSummary(summary);
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+    setUploading(true);
+    setUploadProgress(0);
+    setUploadStatus(null);
+    setUploadError('');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      const response = await apiClient.post('/upload_csv', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (evt) => {
+          if (evt.total) {
+            const pct = Math.round((evt.loaded / evt.total) * 100);
+            setUploadProgress(Math.max(1, pct));
+          }
+        },
+      });
+      setUploadStatus('success');
+      setUploadProgress(100);
+      const nowIso = new Date().toISOString();
+      CATEGORIES.forEach((c) => localStorage.setItem(`last_upload_${c}`, nowIso));
+      if (uploadSummary) {
+        setUploadSummary({
+          ...uploadSummary,
+          acceptedRows: Number(response?.data?.records_inserted || uploadSummary.acceptedRows),
+          modelsWillRetrain: true,
+        });
+      }
+      await loadOperationalData();
+    } catch (err) {
+      setUploadStatus('error');
+      const details = err?.response?.data?.errors?.[0]?.issue;
+      setUploadError(details || err?.response?.data?.message || 'CSV upload failed.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRetrain = async (category) => {
+    setRetrainingCategory(category);
+    try {
+      await apiClient.post(`/retrain/${encodeURIComponent(category)}`);
+      const now = new Date().toISOString();
+      localStorage.setItem(`model_trained_${category}`, now);
+      await loadOperationalData();
+    } catch {
+      setUploadError(`Retrain endpoint unavailable for ${category}.`);
+    } finally {
+      setRetrainingCategory('');
+    }
   };
 
   return (
-    <div className="max-w-5xl space-y-8">
-      {/* Inventory Configuration */}
+    <div className="max-w-6xl space-y-7">
+      {anyStaleData && (
+        <div className="rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          Models are training on stale data. One or more categories have data older than 7 days.
+        </div>
+      )}
+
       <GlassCard
-        title="Inventory Configuration"
-        subtitle="Current stock on hand used for reorder optimization"
-        icon={<Package size={18} />}
+        title="Data Freshness"
+        subtitle="Last upload status by category"
+        icon={<Clock size={18} />}
       >
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {categoryDefaults.map((cat) => (
-            <div key={cat.name} className="space-y-2.5">
-              <label className="flex items-center gap-2 text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">
-                <span className="text-base">{cat.icon}</span>
-                {cat.name} Stock
-              </label>
-              <div className="relative group">
-                <input
-                  type="number"
-                  value={inventoryValues[cat.name]}
-                  onChange={(e) => handleInventoryChange(cat.name, Number(e.target.value))}
-                  className="w-full bg-[#0B1220] border border-white/10 rounded-xl px-4 py-3.5 text-[#E2E8F0]
-                    focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/30 outline-none transition-all
-                    font-mono text-lg group-hover:border-white/20"
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#475569] font-medium">
-                  units
-                </span>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {CATEGORIES.map((category) => {
+            const row = freshnessRows.find((r) => r.category === category) || { lastUpload: 'Unknown', stale: false };
+            return (
+              <div key={category} className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                <p className="text-xs uppercase tracking-wider text-[#94A3B8]">{category}</p>
+                <p className="text-sm text-[#E2E8F0] mt-1">{row.lastUpload === 'Unknown' ? 'Last upload unknown' : new Date(row.lastUpload).toLocaleString('en-IN')}</p>
+                <p className={`text-xs mt-2 ${freshnessTone(row.stale)}`}>
+                  {row.stale ? 'Stale (7+ days)' : 'Fresh'}
+                </p>
               </div>
-              <div className="flex items-center justify-between text-[10px] text-[#475569] px-1">
-                <span>Min: 0</span>
-                <span>Default: {cat.stock.toLocaleString()}</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </GlassCard>
 
-      {/* Dataset Source */}
       <GlassCard
-        title="Dataset Source"
-        subtitle="Upload custom data or use the built-in demo dataset"
+        title="Dataset Upload"
+        subtitle="Upload CSV and validate before retraining"
         icon={<FileSpreadsheet size={18} />}
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Demo Dataset */}
-          <button className="group relative overflow-hidden p-6 rounded-xl
-            bg-gradient-to-br from-blue-600/20 to-blue-700/10
-            border border-blue-500/20 hover:border-blue-500/40
-            transition-all duration-300 cursor-pointer
-            flex flex-col items-center justify-center gap-3 text-center min-h-[180px]
-            hover:shadow-[0_0_30px_rgba(59,130,246,0.1)]"
-          >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <button className="group relative overflow-hidden p-6 rounded-xl bg-gradient-to-br from-blue-600/20 to-blue-700/10 border border-blue-500/20 hover:border-blue-500/40 transition-all duration-300 cursor-pointer flex flex-col items-center justify-center gap-3 text-center min-h-[180px]">
             <div className="p-3.5 bg-blue-500/15 rounded-xl group-hover:scale-110 transition-transform duration-300">
-              <FileSpreadsheet size={28} className="text-blue-400" />
+              <Database size={26} className="text-blue-400" />
             </div>
             <div>
               <p className="font-bold text-[#F1F5F9] text-base">Use Demo Dataset</p>
-              <p className="text-xs text-[#64748B] mt-1 leading-relaxed">
-                Pre-loaded with 12 months of synthetic<br />sales data across 3 categories
-              </p>
+              <p className="text-xs text-[#64748B] mt-1">Load seeded sample data for quick testing</p>
             </div>
-            <div className="absolute inset-0 bg-gradient-to-t from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
           </button>
 
-          {/* Drag-and-Drop Upload Zone */}
           <div
             onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
             onDragLeave={() => setIsDragOver(false)}
-            onDrop={(e) => { e.preventDefault(); setIsDragOver(false); }}
-            className={`
-              relative p-6 rounded-xl border-2 border-dashed transition-all duration-300
-              flex flex-col items-center justify-center gap-3 text-center min-h-[180px] cursor-pointer
-              ${isDragOver
-                ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_40px_rgba(59,130,246,0.15)] scale-[1.01]'
-                : 'border-white/10 hover:border-white/20 bg-white/[0.015] hover:bg-white/[0.03]'
-              }
-            `}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              const file = e.dataTransfer?.files?.[0];
+              onFileSelected(file);
+            }}
+            className={`relative p-6 rounded-xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center gap-3 text-center min-h-[180px] ${isDragOver ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_40px_rgba(59,130,246,0.15)] scale-[1.01]' : 'border-white/10 hover:border-white/20 bg-white/[0.015] hover:bg-white/[0.03]'}`}
           >
-            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" accept=".csv" />
+            <input
+              type="file"
+              className="absolute inset-0 opacity-0 cursor-pointer z-10"
+              accept=".csv"
+              onChange={(e) => onFileSelected(e.target.files?.[0])}
+            />
             <div className={`p-3.5 rounded-xl transition-all duration-300 ${isDragOver ? 'bg-blue-500/15 scale-110' : 'bg-white/5'}`}>
               <CloudUpload size={28} className={`transition-colors duration-300 ${isDragOver ? 'text-blue-400' : 'text-[#64748B]'}`} />
             </div>
             <div>
-              <p className="font-semibold text-[#E2E8F0]">
-                {isDragOver ? 'Drop your file here' : 'Drag & drop CSV file'}
-              </p>
-              <p className="text-xs text-[#64748B] mt-1">or click to browse &middot; .csv files only</p>
+              <p className="font-semibold text-[#E2E8F0]">{selectedFile ? selectedFile.name : 'Drag & drop CSV file'}</p>
+              <p className="text-xs text-[#64748B] mt-1">or click to browse</p>
             </div>
-            {isDragOver && (
-              <div className="absolute inset-0 bg-blue-500/5 rounded-xl pointer-events-none animate-pulse" />
-            )}
           </div>
         </div>
-      </GlassCard>
 
-      {/* Recent Activity */}
-      <GlassCard
-        title="Recent Activity"
-        subtitle="Upload and processing history"
-        icon={<Clock size={18} />}
-        noPadding
-      >
-        <div className="divide-y divide-white/5">
-          {recentActivity.map((item) => (
-            <div key={item.id} className="flex items-center gap-4 px-6 py-4 hover:bg-white/[0.02] transition-colors group">
-              <div className={`p-2 rounded-lg shrink-0 ${item.status === 'success' ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`}>
-                {item.status === 'success'
-                  ? <CheckCircle2 size={18} className="text-emerald-400" />
-                  : <AlertCircle size={18} className="text-amber-400" />
-                }
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-[#E2E8F0] text-sm truncate">{item.filename}</p>
-                <p className="text-xs text-[#475569] mt-0.5">{item.date}</p>
-              </div>
-              <div className="hidden sm:flex items-center gap-4 text-xs text-[#64748B]">
-                <span className="flex items-center gap-1.5">
-                  <Rows3 size={12} className="text-[#475569]" />
-                  {item.rows.toLocaleString()} rows
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <HardDrive size={12} className="text-[#475569]" />
-                  {item.size}
-                </span>
-              </div>
-              <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-red-500/10 text-[#475569] hover:text-red-400">
-                <Trash2 size={14} />
-              </button>
+        <div className="mt-5 flex items-center gap-3">
+          <button
+            onClick={handleUpload}
+            disabled={!selectedFile || uploading}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {uploading ? 'Uploading...' : 'Upload CSV'}
+          </button>
+          {uploadStatus === 'success' && <span className="text-emerald-300 text-sm flex items-center gap-1"><CheckCircle2 size={14} />Upload successful</span>}
+          {uploadStatus === 'error' && <span className="text-red-300 text-sm flex items-center gap-1"><AlertCircle size={14} />{uploadError}</span>}
+        </div>
+
+        {(uploading || uploadProgress > 0) && (
+          <div className="mt-3">
+            <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 transition-all" style={{ width: `${uploadProgress}%` }} />
             </div>
-          ))}
+            <p className="text-xs text-[#94A3B8] mt-1">{uploadProgress}%</p>
+          </div>
+        )}
+
+        {uploadSummary && (
+          <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <p className="text-xs uppercase tracking-wider text-[#94A3B8] mb-3">Validation Summary</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+              <p>Rows accepted: <span className="font-semibold text-emerald-300">{uploadSummary.acceptedRows}</span></p>
+              <p>Rows rejected: <span className="font-semibold text-red-300">{uploadSummary.rejectedRows}</span></p>
+              <p>Date range: <span className="font-semibold text-[#E2E8F0]">{uploadSummary.dateRange}</span></p>
+              <p>Categories: <span className="font-semibold text-[#E2E8F0]">{uploadSummary.categoriesDetected.join(', ') || 'n/a'}</span></p>
+              <p>Retrain: <span className="font-semibold text-[#E2E8F0]">{uploadSummary.modelsWillRetrain ? 'Yes' : 'No'}</span></p>
+              <p>Reject reason: <span className="font-semibold text-[#E2E8F0]">{uploadSummary.rejectedRows > 0 ? uploadSummary.rejectedReason : 'None'}</span></p>
+            </div>
+          </div>
+        )}
+      </GlassCard>
+
+      <GlassCard
+        title="Model Status"
+        subtitle="Category-level training and health status"
+        icon={<ShieldAlert size={18} />}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[#64748B] text-xs uppercase tracking-wider border-b border-white/5">
+                <th className="pb-3 pr-6 font-semibold">Category</th>
+                <th className="pb-3 pr-6 font-semibold">Last Trained</th>
+                <th className="pb-3 pr-6 font-semibold text-right">Training Points</th>
+                <th className="pb-3 pr-6 font-semibold">Model Health</th>
+                <th className="pb-3 font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {modelRows.map((row) => (
+                <tr key={row.category} className="border-b border-white/5">
+                  <td className="py-3 pr-6 text-[#F1F5F9] font-semibold">{row.category}</td>
+                  <td className="py-3 pr-6 text-[#CBD5E1]">{row.lastTrained === 'Unknown' ? 'Unknown' : new Date(row.lastTrained).toLocaleString('en-IN')}</td>
+                  <td className="py-3 pr-6 text-right font-mono text-[#CBD5E1]">{row.trainingPoints}</td>
+                  <td className="py-3 pr-6">
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${row.health === 'healthy' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' : row.health === 'watch' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' : 'bg-red-500/10 text-red-300 border-red-500/30'}`}>
+                      {row.health}
+                    </span>
+                  </td>
+                  <td className="py-3">
+                    <button
+                      onClick={() => handleRetrain(row.category)}
+                      disabled={retrainingCategory === row.category}
+                      className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-semibold text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    >
+                      <RefreshCw size={12} className={retrainingCategory === row.category ? 'animate-spin' : ''} />
+                      Retrain
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </GlassCard>
 
-      {/* Info Box */}
-      <div className="p-6 rounded-xl bg-gradient-to-r from-blue-500/5 to-transparent border border-blue-500/15 flex items-start gap-4">
-        <div className="p-2.5 bg-blue-500/10 rounded-xl shrink-0">
-          <Info size={20} className="text-blue-400" />
+      <GlassCard
+        title="Recent AI Recommendations"
+        subtitle="Audit trail from recommendation logs"
+        icon={<Info size={18} />}
+      >
+        {recommendationFallback && (
+          <p className="text-xs text-amber-300 mb-2">Recommendation log endpoint unavailable; showing fallback from latest forecast decisions.</p>
+        )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[#64748B] text-xs uppercase tracking-wider border-b border-white/5">
+                <th className="pb-3 pr-6 font-semibold">Date</th>
+                <th className="pb-3 pr-6 font-semibold">Category</th>
+                <th className="pb-3 pr-6 font-semibold">Action</th>
+                <th className="pb-3 pr-6 font-semibold text-right">Order Qty</th>
+                <th className="pb-3 font-semibold text-right">Risk Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recommendations.map((row, idx) => (
+                <tr key={`${row.category}-${row.date}-${idx}`} className="border-b border-white/5">
+                  <td className="py-3 pr-6 text-[#CBD5E1]">{new Date(row.date || row.generated_at || Date.now()).toLocaleString('en-IN')}</td>
+                  <td className="py-3 pr-6 text-[#F1F5F9]">{row.category}</td>
+                  <td className="py-3 pr-6 text-[#CBD5E1]">{row.action || row.recommended_action || 'n/a'}</td>
+                  <td className="py-3 pr-6 text-right font-mono text-[#CBD5E1]">{Number(row.order_quantity || 0).toLocaleString()}</td>
+                  <td className="py-3 text-right font-mono text-[#CBD5E1]">{Number(row.risk_score || 0).toFixed(2)}</td>
+                </tr>
+              ))}
+              {!recommendations.length && (
+                <tr>
+                  <td colSpan={5} className="py-4 text-center text-[#94A3B8]">No recommendation history available.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-        <div>
-          <h4 className="font-semibold text-blue-100 text-sm">Validation Ready</h4>
-          <p className="text-sm text-blue-300/70 mt-1 leading-relaxed">
-            System is ready for forecasting. Upload a valid sales history CSV to generate
-            customized network intelligence. Required columns: <code className="text-blue-300/90 bg-blue-500/10 px-1.5 py-0.5 rounded text-xs">date</code>,{' '}
-            <code className="text-blue-300/90 bg-blue-500/10 px-1.5 py-0.5 rounded text-xs">sku_id</code>,{' '}
-            <code className="text-blue-300/90 bg-blue-500/10 px-1.5 py-0.5 rounded text-xs">units_sold</code>
-          </p>
-        </div>
-      </div>
+      </GlassCard>
+
+      <GlassCard
+        title="Advanced Settings"
+        subtitle="Inventory configuration for optimization inputs"
+        icon={<Package size={18} />}
+      >
+        <button
+          onClick={() => setAdvancedOpen((v) => !v)}
+          className="w-full flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm font-semibold text-[#E2E8F0]"
+        >
+          <span>Inventory Configuration</span>
+          {advancedOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+        {advancedOpen && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+            {CATEGORIES.map((category) => (
+              <div key={category} className="space-y-2.5">
+                <label className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">{category} Stock</label>
+                <div className="relative group">
+                  <input
+                    type="number"
+                    value={inventoryValues[category]}
+                    onChange={(e) => setInventoryValues((prev) => ({ ...prev, [category]: Number(e.target.value) }))}
+                    className="w-full bg-[#0B1220] border border-white/10 rounded-xl px-4 py-3 text-[#E2E8F0] focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/30 outline-none transition-all font-mono"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#475569] font-medium">units</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </GlassCard>
     </div>
   );
 };
