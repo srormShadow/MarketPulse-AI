@@ -1,0 +1,129 @@
+<svg width="1600" height="980" viewBox="0 0 1600 980" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1600" y2="980" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1220"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1F2937"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="10" refY="7" orient="auto">
+      <path d="M0,0 L14,7 L0,14 z" fill="#F59E0B"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <style>
+      .title { font: 700 42px 'Segoe UI', Arial, sans-serif; fill: #F9FAFB; }
+      .subtitle { font: 500 20px 'Segoe UI', Arial, sans-serif; fill: #CBD5E1; }
+      .label { font: 600 22px 'Segoe UI', Arial, sans-serif; fill: #F3F4F6; }
+      .small { font: 500 16px 'Segoe UI', Arial, sans-serif; fill: #9CA3AF; }
+      .aws { font: 700 14px 'Segoe UI', Arial, sans-serif; fill: #F59E0B; letter-spacing: 1px; }
+      .vpc { font: 700 20px 'Segoe UI', Arial, sans-serif; fill: #FDE68A; }
+      .flow { font: 500 14px 'Segoe UI', Arial, sans-serif; fill: #FBBF24; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="980" fill="url(#bgGrad)"/>
+
+  <text x="800" y="74" text-anchor="middle" class="title">MarketPulse AI — AWS Architecture</text>
+  <text x="800" y="108" text-anchor="middle" class="subtitle">Retail Demand Forecasting &amp; Inventory Intelligence</text>
+
+  <!-- VPC boundary -->
+  <rect x="430" y="185" width="1110" height="680" rx="20" fill="rgba(245,158,11,0.06)" stroke="#F59E0B" stroke-width="2" stroke-dasharray="10 8"/>
+  <text x="460" y="218" class="vpc">Amazon VPC (Backend Boundary)</text>
+
+  <!-- User -->
+  <g filter="url(#shadow)">
+    <rect x="60" y="360" width="250" height="120" rx="16" fill="url(#cardGrad)" stroke="#374151" stroke-width="2"/>
+    <circle cx="112" cy="420" r="18" fill="#F59E0B"/>
+    <rect x="98" y="438" width="28" height="20" rx="8" fill="#F59E0B"/>
+    <text x="152" y="414" class="label">User</text>
+    <text x="152" y="438" class="small">Retail Planner / Owner</text>
+  </g>
+
+  <!-- Amplify -->
+  <g filter="url(#shadow)">
+    <rect x="390" y="360" width="280" height="140" rx="16" fill="url(#cardGrad)" stroke="#F59E0B" stroke-width="2"/>
+    <rect x="418" y="390" width="44" height="44" rx="8" fill="#F59E0B"/>
+    <path d="M429 422 L440 400 L451 422 Z" fill="#111827"/>
+    <text x="478" y="404" class="aws">AWS</text>
+    <text x="478" y="430" class="label">AWS Amplify</text>
+    <text x="478" y="454" class="small">React Frontend Hosting</text>
+  </g>
+
+  <!-- API Gateway -->
+  <g filter="url(#shadow)">
+    <rect x="760" y="360" width="300" height="140" rx="16" fill="url(#cardGrad)" stroke="#F59E0B" stroke-width="2"/>
+    <rect x="790" y="390" width="44" height="44" rx="8" fill="#F59E0B"/>
+    <path d="M798 412 H826 M798 402 H826 M798 422 H826" stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+    <text x="850" y="404" class="aws">AWS</text>
+    <text x="850" y="430" class="label">Amazon API Gateway</text>
+    <text x="850" y="454" class="small">REST API + Rate Controls</text>
+  </g>
+
+  <!-- ECS Fargate -->
+  <g filter="url(#shadow)">
+    <rect x="1130" y="330" width="360" height="190" rx="16" fill="url(#cardGrad)" stroke="#F59E0B" stroke-width="2"/>
+    <rect x="1162" y="382" width="52" height="52" rx="10" fill="#F59E0B"/>
+    <rect x="1174" y="395" width="28" height="26" rx="5" fill="#111827"/>
+    <text x="1230" y="394" class="aws">AWS</text>
+    <text x="1230" y="420" class="label">Amazon ECS Fargate</text>
+    <text x="1230" y="446" class="small">FastAPI Backend Service</text>
+    <text x="1230" y="470" class="small">Forecasting + Decision + Insights</text>
+  </g>
+
+  <!-- DynamoDB -->
+  <g filter="url(#shadow)">
+    <rect x="560" y="620" width="300" height="170" rx="16" fill="url(#cardGrad)" stroke="#F59E0B" stroke-width="2"/>
+    <ellipse cx="612" cy="680" rx="26" ry="14" fill="#F59E0B"/>
+    <rect x="586" y="680" width="52" height="28" fill="#F59E0B"/>
+    <ellipse cx="612" cy="708" rx="26" ry="14" fill="#F59E0B"/>
+    <text x="660" y="662" class="aws">AWS</text>
+    <text x="660" y="688" class="label">Amazon DynamoDB</text>
+    <text x="660" y="714" class="small">sales, forecasts, inventory, logs</text>
+  </g>
+
+  <!-- S3 -->
+  <g filter="url(#shadow)">
+    <rect x="930" y="620" width="280" height="170" rx="16" fill="url(#cardGrad)" stroke="#F59E0B" stroke-width="2"/>
+    <rect x="966" y="660" width="48" height="48" rx="8" fill="#F59E0B"/>
+    <path d="M974 695 H1006 M978 684 H1002 M982 673 H998" stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+    <text x="1030" y="662" class="aws">AWS</text>
+    <text x="1030" y="688" class="label">Amazon S3</text>
+    <text x="1030" y="714" class="small">CSV uploads + model artifacts</text>
+  </g>
+
+  <!-- Bedrock -->
+  <g filter="url(#shadow)">
+    <rect x="1280" y="620" width="250" height="170" rx="16" fill="url(#cardGrad)" stroke="#F59E0B" stroke-width="2"/>
+    <rect x="1312" y="660" width="48" height="48" rx="8" fill="#F59E0B"/>
+    <path d="M1320 700 L1336 672 L1352 700 Z" fill="#111827"/>
+    <text x="1378" y="662" class="aws">AWS</text>
+    <text x="1378" y="688" class="label">Amazon Bedrock</text>
+    <text x="1378" y="714" class="small">Claude Sonnet 4.6 Insights</text>
+  </g>
+
+  <!-- Arrows / flows -->
+  <line x1="310" y1="420" x2="390" y2="420" stroke="#F59E0B" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="340" y="405" class="flow">UI Requests</text>
+
+  <line x1="670" y1="430" x2="760" y2="430" stroke="#F59E0B" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="700" y="414" class="flow">HTTPS API</text>
+
+  <line x1="1060" y1="430" x2="1130" y2="430" stroke="#F59E0B" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="1075" y="414" class="flow">Proxy Route</text>
+
+  <line x1="1220" y1="520" x2="840" y2="620" stroke="#F59E0B" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="990" y="555" class="flow">Read/Write: sales, forecasts, inventory, logs</text>
+
+  <line x1="1290" y1="520" x2="1090" y2="620" stroke="#F59E0B" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="1140" y="555" class="flow">Upload CSV + Save Models</text>
+
+  <line x1="1050" y1="620" x2="1190" y2="520" stroke="#F59E0B" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="1030" y="590" class="flow">Model Loading</text>
+
+  <line x1="1355" y1="520" x2="1405" y2="620" stroke="#F59E0B" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="1362" y="558" class="flow">Generate AI Insights</text>
+</svg>
