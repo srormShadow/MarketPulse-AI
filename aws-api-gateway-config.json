@@ -1,0 +1,67 @@
+{
+  "apiName": "marketpulse-api",
+  "apiType": "REST",
+  "description": "API Gateway REST proxy for MarketPulse ECS backend",
+  "stageName": "prod",
+  "backend": {
+    "ecsLoadBalancerUrl": "https://YOUR-ALB-DNS-NAME",
+    "proxyPath": "/{proxy+}"
+  },
+  "resources": [
+    {
+      "path": "/{proxy+}",
+      "method": "ANY",
+      "integration": {
+        "type": "HTTP_PROXY",
+        "httpMethod": "ANY",
+        "uri": "https://YOUR-ALB-DNS-NAME/{proxy}",
+        "connectionType": "INTERNET"
+      }
+    },
+    {
+      "path": "/",
+      "method": "ANY",
+      "integration": {
+        "type": "HTTP_PROXY",
+        "httpMethod": "ANY",
+        "uri": "https://YOUR-ALB-DNS-NAME/",
+        "connectionType": "INTERNET"
+      }
+    }
+  ],
+  "cors": {
+    "allowOrigins": [
+      "https://YOUR_APP_ID.amplifyapp.com"
+    ],
+    "allowMethods": [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS"
+    ],
+    "allowHeaders": [
+      "Content-Type",
+      "Authorization",
+      "X-Amz-Date",
+      "X-Api-Key",
+      "X-Amz-Security-Token"
+    ],
+    "allowCredentials": true,
+    "maxAgeSeconds": 3600
+  },
+  "throttling": {
+    "burstLimit": 20,
+    "rateLimitPerSecond": 10
+  },
+  "usagePlan": {
+    "name": "marketpulse-hackathon-plan",
+    "apiKeyRequired": true,
+    "quota": {
+      "limit": 1000,
+      "period": "DAY"
+    }
+  }
+}
+

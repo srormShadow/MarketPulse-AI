@@ -1,0 +1,63 @@
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: marketpulse-dynamodb-local
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data"
+    ports:
+      - "8000:8000"
+    volumes:
+      - dynamodb_data:/home/dynamodblocal/data
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: marketpulse-localstack
+    environment:
+      - SERVICES=s3
+      - EDGE_PORT=4566
+      - AWS_DEFAULT_REGION=ap-south-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: marketpulse-backend
+    env_file:
+      - .env.local
+    environment:
+      - PYTHONPATH=/app/src
+    ports:
+      - "8001:8000"
+    depends_on:
+      - dynamodb-local
+      - localstack
+    command: >
+      uvicorn marketpulse.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+
+  frontend:
+    image: node:18
+    container_name: marketpulse-frontend
+    working_dir: /app/frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8001
+    command: >
+      sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 3000"
+    volumes:
+      - ./frontend:/app/frontend
+
+volumes:
+  dynamodb_data:
+  localstack_data:
