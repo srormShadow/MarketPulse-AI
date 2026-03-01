@@ -35,6 +35,8 @@ app = FastAPI(
 # This allows the React SPA running on port 5173 (or production domain) 
 # to make requests to this FastAPI backend.
 origins = [
+    "http://localhost:3000",      # React dev server via docker-compose
+    "http://127.0.0.1:3000",      # React dev server via docker-compose (IP)
     "http://localhost:5173",      # React Vite dev server
     "http://127.0.0.1:5173",      # React Vite dev server (IP)
     # NOTE: In production, add the FRONTEND_URL from env vars here
