@@ -6,6 +6,8 @@ __pycache__
 *.pyc
 *.pyo
 *.pyd
+*.pkl
+*.joblib
 .pytest_cache
 .mypy_cache
 .ruff_cache
@@ -15,10 +17,22 @@ tests
 docs
 frontend
 data
+scripts
 *.db
 .env
+.env.local
+.env.production
+.env.*
+!.env.example
 .vscode
 .idea
+.claude
 node_modules
 dist
+deploy.sh
+aws-api-gateway-config.json
+ecs-task-definition.json
+docker-compose.yml
+run_backend.py
+README.md
 

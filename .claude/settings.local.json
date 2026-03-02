@@ -3,7 +3,18 @@
     "allow": [
       "Bash(ls -d */)",
       "Bash(npm run build)",
-      "Bash(ls *.md)"
+      "Bash(ls *.md)",
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(pip install pytest -q)",
+      "Bash(xargs grep -l \"csv_ingestion\\\\|forecasting\\\\|train_model\\\\|forecast_next\")",
+      "Bash(xargs cat)",
+      "Bash(test -f \"d:\\\\Projects\\\\MarketPulse_AI\\\\MarketPulse-AI\\\\docs\\\\architecture.svg\")",
+      "Bash(PYTHONPATH=src python -m pytest tests/test_database.py tests/test_forecasting.py -x -q)",
+      "Bash(PYTHONPATH=src python -m pytest tests/test_database.py::test_festival_seed_is_idempotent tests/test_database.py::test_expected_tables_are_created -v -q)",
+      "Bash(npx vite build)",
+      "Bash(npm install)",
+      "Bash(PYTHONPATH=src python -m pytest tests/ -q)",
+      "Bash(curl -s http://127.0.0.1:8000/health)"
     ]
   }
 }

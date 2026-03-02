@@ -210,7 +210,15 @@ frontend/node_modules/
 
 # Environment files
 .env
+.env.local
+.env.production
+.env.*
 !.env.example
+!frontend/.env.example
+
+# Model artifacts
+*.pkl
+*.joblib
 
 # IDE
 .vscode/
@@ -219,3 +227,6 @@ frontend/node_modules/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Node (root-level safety)
+node_modules/
