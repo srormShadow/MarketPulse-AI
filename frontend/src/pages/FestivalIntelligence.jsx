@@ -1,26 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, AlertTriangle, Flame } from 'lucide-react';
+import { AlertTriangle, Flame } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts';
 import GlassCard from '../components/ui/GlassCard';
+import FestivalCalendar from '../components/festival/FestivalCalendar';
 import { apiClient } from '../api/client';
 
 const CATEGORIES = ['Snacks', 'Staples', 'Edible Oil'];
 const INVENTORY = { Snacks: 2800, Staples: 5100, 'Edible Oil': 1900 };
 const LEAD_TIMES = { Snacks: 5, Staples: 7, 'Edible Oil': 10 };
 
-const toDate = (v) => new Date(v);
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const daysUntil = (dateValue) => {
   const now = startOfDay(new Date());
   const target = startOfDay(new Date(dateValue));
   return Math.floor((target - now) / (1000 * 60 * 60 * 24));
-};
-const impactTone = (uplift) => {
-  if (uplift >= 0.3) return 'bg-red-500/20 border-red-500/35 text-red-200';
-  if (uplift >= 0.18) return 'bg-amber-500/20 border-amber-500/35 text-amber-200';
-  return 'bg-emerald-500/20 border-emerald-500/35 text-emerald-200';
 };
 const readinessStatus = (gapRatio) => {
   if (gapRatio >= 0.35) return 'CRITICAL';
@@ -31,15 +26,6 @@ const readinessStyle = (status) => {
   if (status === 'CRITICAL') return 'bg-red-500/15 text-red-200 border-red-500/35';
   if (status === 'AT RISK') return 'bg-amber-500/15 text-amber-200 border-amber-500/35';
   return 'bg-emerald-500/15 text-emerald-200 border-emerald-500/35';
-};
-
-const inferAffectedCategories = (festivalCategory) => {
-  const key = String(festivalCategory || '').toLowerCase();
-  if (key === 'general') return CATEGORIES;
-  if (key === 'grocery') return ['Staples', 'Edible Oil'];
-  if (key === 'gifting') return ['Snacks'];
-  const matched = CATEGORIES.filter((c) => c.toLowerCase() === key);
-  return matched.length ? matched : CATEGORIES;
 };
 
 const FestivalIntelligence = () => {
@@ -96,22 +82,20 @@ const FestivalIntelligence = () => {
     return () => { cancelled = true; };
   }, []);
 
-  const upcoming90 = useMemo(() => {
+  const upcoming60 = useMemo(() => {
     const now = startOfDay(new Date());
-    const limit = new Date(now);
-    limit.setDate(now.getDate() + 90);
     return festivals
       .map((f) => ({
         ...f,
-        dateObj: toDate(f.date),
+        dateObj: new Date(f.date),
         days_to: daysUntil(f.date),
-        affected: inferAffectedCategories(f.category),
+        affected: (f.categories && f.categories.length > 0)
+          ? f.categories
+          : String(f.category || '').split(',').map((s) => s.trim()).filter(Boolean),
       }))
-      .filter((f) => f.dateObj >= now && f.dateObj <= limit)
+      .filter((f) => f.dateObj >= now && f.days_to <= 60)
       .sort((a, b) => a.dateObj - b.dateObj);
   }, [festivals]);
-
-  const upcoming60 = useMemo(() => upcoming90.filter((f) => f.days_to <= 60), [upcoming90]);
 
   const readinessRows = useMemo(() => {
     const rows = [];
@@ -177,49 +161,7 @@ const FestivalIntelligence = () => {
         </div>
       )}
 
-      <GlassCard
-        title="Festival Calendar (90 Days)"
-        subtitle="Upcoming festivals and expected category impact"
-        icon={<CalendarDays size={18} />}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {upcoming90.map((festival) => (
-            <div key={`${festival.festival_name}-${festival.date}`} className={`rounded-xl border p-4 ${impactTone(Number(festival.historical_uplift || 0))}`}>
-              <p className="text-sm font-bold">{festival.festival_name}</p>
-              <p className="text-xs opacity-90 mt-1">{new Date(festival.date).toDateString()} • {festival.days_to} days until</p>
-              <p className="text-xs mt-2">Affected: {festival.affected.join(', ')}</p>
-              <p className="text-xs mt-1">Expected impact: +{Math.round(Number(festival.historical_uplift || 0) * 100)}%</p>
-            </div>
-          ))}
-          {!upcoming90.length && <p className="text-sm text-[#94A3B8]">No festivals found in the next 90 days.</p>}
-        </div>
-      </GlassCard>
-
-      <GlassCard
-        title="Per-Festival Impact"
-        subtitle="Demand multiplier and order preparation guidance (next 60 days)"
-        icon={<Flame size={18} />}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {upcoming60.map((festival) => {
-            const affected = festival.affected;
-            const minLeadTime = Math.min(...affected.map((c) => LEAD_TIMES[c] || 7));
-            const orderBy = new Date(festival.date);
-            orderBy.setDate(orderBy.getDate() - minLeadTime);
-            const uplift = Number(festival.historical_uplift || 0);
-            return (
-              <div key={`${festival.festival_name}-${festival.date}-impact`} className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-                <p className="text-sm font-bold text-[#F1F5F9]">{festival.festival_name} — {new Date(festival.date).toLocaleDateString('en-IN')}</p>
-                <p className="text-xs text-[#94A3B8] mt-1">Affected categories: {affected.join(', ')}</p>
-                <p className="text-sm text-amber-300 mt-3">Expected demand multiplier: {(1 + uplift).toFixed(2)}x</p>
-                <p className="text-sm text-blue-300 mt-1">Recommended stock increase: +{Math.round(uplift * 100)}%</p>
-                <p className="text-sm text-emerald-300 mt-1">Order by {orderBy.toLocaleDateString('en-IN')} ({minLeadTime} day lead time)</p>
-              </div>
-            );
-          })}
-          {!upcoming60.length && <p className="text-sm text-[#94A3B8]">No festivals in next 60 days.</p>}
-        </div>
-      </GlassCard>
+      <FestivalCalendar variant="full" leadTimes={LEAD_TIMES} />
 
       <GlassCard
         title="Pre-Festival Readiness"

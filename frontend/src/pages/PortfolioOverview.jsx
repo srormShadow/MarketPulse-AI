@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ShieldAlert, PackageX, TrendingUp, Layers,
-  Activity, AlertTriangle, BarChart3, ChevronRight, CalendarRange,
+  Activity, AlertTriangle, BarChart3, ChevronRight,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -10,6 +10,7 @@ import {
 import GlassCard from '../components/ui/GlassCard';
 import StatCard from '../components/ui/StatCard';
 import RiskDrawer from '../components/ui/RiskDrawer';
+import FestivalCalendar from '../components/festival/FestivalCalendar';
 import { apiClient } from '../api/client';
 
 const DEFAULT_CATEGORIES = ['Snacks', 'Staples', 'Edible Oil'];
@@ -61,12 +62,9 @@ const ActionBadge = ({ action }) => (
   </span>
 );
 
-const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-
 const PortfolioOverview = () => {
   const [drawerCategory, setDrawerCategory] = useState(null);
   const [forecastRows, setForecastRows] = useState([]);
-  const [festivalItems, setFestivalItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -77,20 +75,16 @@ const PortfolioOverview = () => {
       setLoading(true);
       setError('');
       try {
-        const [batchRes, festivalsRes] = await Promise.all([
-          apiClient.post('/forecast/batch', {
-            categories: DEFAULT_CATEGORIES,
-            n_days: 60,
-            inventory: DEFAULT_INVENTORY,
-            lead_times: DEFAULT_LEAD_TIMES,
-          }),
-          apiClient.get('/festivals'),
-        ]);
+        const batchRes = await apiClient.post('/forecast/batch', {
+          categories: DEFAULT_CATEGORIES,
+          n_days: 60,
+          inventory: DEFAULT_INVENTORY,
+          lead_times: DEFAULT_LEAD_TIMES,
+        });
 
         if (cancelled) return;
 
         setForecastRows(Array.isArray(batchRes.data) ? batchRes.data : []);
-        setFestivalItems(Array.isArray(festivalsRes?.data?.items) ? festivalsRes.data.items : []);
       } catch (err) {
         if (cancelled) return;
         setError(err?.response?.data?.message || 'Unable to load portfolio data from backend.');
@@ -187,36 +181,6 @@ const PortfolioOverview = () => {
       required: Math.round(r.requiredStock),
     }));
   }, [derived.rows]);
-
-  const festivalTimeline = useMemo(() => {
-    const now = startOfDay(new Date());
-    const limit = new Date(now);
-    limit.setDate(limit.getDate() + 30);
-
-    const daySeries = [];
-    for (let i = 0; i < 30; i += 1) {
-      const day = new Date(now);
-      day.setDate(now.getDate() + i);
-      daySeries.push(day);
-    }
-
-    const inWindow = festivalItems
-      .map((f) => ({ ...f, dateObj: startOfDay(new Date(f.date)) }))
-      .filter((f) => f.dateObj >= now && f.dateObj < limit);
-
-    const grouped = {};
-    inWindow.forEach((item) => {
-      const key = item.dateObj.toISOString().slice(0, 10);
-      if (!grouped[key]) grouped[key] = {};
-      if (!grouped[key][item.festival_name]) grouped[key][item.festival_name] = new Set();
-      grouped[key][item.festival_name].add(item.category);
-    });
-
-    return {
-      daySeries,
-      grouped,
-    };
-  }, [festivalItems]);
 
   const actionBanner = useMemo(() => {
     const orderingCount = derived.action.requiresOrderingCount;
@@ -362,50 +326,7 @@ const PortfolioOverview = () => {
         </div>
       </GlassCard>
 
-      <GlassCard
-        title="30-Day Festival Outlook"
-        subtitle="Festival dates and affected categories in the next 30 days"
-        icon={<CalendarRange size={18} />}
-      >
-        <div className="space-y-3">
-          <div
-            className="grid gap-1"
-            style={{ gridTemplateColumns: `repeat(${festivalTimeline.daySeries.length}, minmax(0, 1fr))` }}
-          >
-            {festivalTimeline.daySeries.map((day) => {
-              const key = day.toISOString().slice(0, 10);
-              const dayEvents = festivalTimeline.grouped[key] || null;
-              const hasEvent = Boolean(dayEvents);
-              return (
-                <div key={key} className="relative">
-                  <div className="h-8 rounded-md bg-white/[0.02] border border-white/5 flex items-center justify-center text-[10px] text-[#64748B]">
-                    {day.getDate()}
-                  </div>
-                  {hasEvent && (
-                    <div className="absolute left-1/2 -translate-x-1/2 -top-1 h-10 w-[3px] rounded-full bg-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.65)]" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <div className="space-y-2">
-            {Object.keys(festivalTimeline.grouped).length === 0 && (
-              <p className="text-xs text-[#94A3B8]">No festivals in the next 30 days.</p>
-            )}
-            {Object.entries(festivalTimeline.grouped).map(([date, names]) => (
-              <div key={date} className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
-                {Object.entries(names).map(([festivalName, categories]) => (
-                  <p key={`${date}-${festivalName}`} className="text-xs text-[#CBD5E1]">
-                    <span className="font-semibold text-amber-300">{festivalName}</span>
-                    <span className="mx-1 text-[#64748B]">({date})</span>
-                    affects {Array.from(categories).join(', ')}
-                  </p>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      </GlassCard>
+      <FestivalCalendar variant="compact" />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <GlassCard
