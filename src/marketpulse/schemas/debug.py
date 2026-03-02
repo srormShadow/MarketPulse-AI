@@ -34,12 +34,15 @@ class SalesCountResponse(BaseModel):
 
 
 class FestivalItemResponse(BaseModel):
-    """Serialized festival record for debug listings."""
+    """Serialized festival record."""
 
     festival_name: str
     date: date
     category: str
+    categories: list[str] = Field(default_factory=list)
     historical_uplift: float
+    demand_multiplier: float = 1.0
+    days_until: int = 0
 
 
 class FestivalListResponse(BaseModel):

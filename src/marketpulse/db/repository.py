@@ -36,6 +36,7 @@ class DataRepository(Protocol):
 
     # --- Festivals ---
     def count_festivals(self) -> int: ...
+    def clear_festivals(self) -> None: ...
     def seed_festivals(self, festivals: list[dict]) -> None: ...
     def get_all_festival_dates(self) -> list[tuple[str, Any]]: ...
     def list_all_festivals(self) -> list[dict]: ...
@@ -43,6 +44,7 @@ class DataRepository(Protocol):
     # --- Insights / Recommendations ---
     def log_recommendation(self, category: str, risk_score: float, insight: str, generated_at: datetime) -> None: ...
     def get_cached_recommendation(self, category: str, risk_score: float, max_age_seconds: int = 3600) -> dict[str, Any] | None: ...
+    def list_recent_recommendations(self, limit: int = 10) -> list[dict[str, Any]]: ...
 
     # --- Forecast Cache ---
     def save_forecast_cache(self, category: str, payload: dict[str, Any], generated_at: datetime) -> None: ...
@@ -157,6 +159,10 @@ class SQLiteRepository:
     def count_festivals(self) -> int:
         return self._db.scalar(select(func.count()).select_from(Festival)) or 0
 
+    def clear_festivals(self) -> None:
+        self._db.query(Festival).delete()
+        self._db.commit()
+
     def seed_festivals(self, festivals: list[dict]) -> None:
         objs = [Festival(**f) for f in festivals]
         self._db.add_all(objs)
@@ -196,6 +202,10 @@ class SQLiteRepository:
     ) -> dict[str, Any] | None:
         # SQLite path currently does not persist recommendation logs.
         return None
+
+    def list_recent_recommendations(self, limit: int = 10) -> list[dict[str, Any]]:
+        # SQLite path currently does not persist recommendation logs.
+        return []
 
     # --- Forecast Cache -------------------------------------------------
 

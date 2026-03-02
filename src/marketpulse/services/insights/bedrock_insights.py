@@ -7,8 +7,17 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
+try:
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+except ModuleNotFoundError:  # pragma: no cover - exercised in lean test envs
+    boto3 = None
+
+    class BotoCoreError(Exception):
+        pass
+
+    class ClientError(Exception):
+        pass
 
 from marketpulse.core.config import get_settings
 
@@ -19,6 +28,8 @@ ANTHROPIC_VERSION = "bedrock-2023-05-31"
 
 
 def _bedrock_client():
+    if boto3 is None:
+        raise RuntimeError("boto3 is not installed. Install boto3 to enable Bedrock.")
     settings = get_settings()
     kwargs: dict[str, str] = {"region_name": settings.aws_region}
     if settings.bedrock_endpoint_url:

@@ -32,15 +32,15 @@ app = FastAPI(
 )
 
 # ── Configure CORS for React Frontend ─────────────────────────────────────
-# This allows the React SPA running on port 5173 (or production domain) 
-# to make requests to this FastAPI backend.
-origins = [
-    "http://localhost:3000",      # React dev server via docker-compose
-    "http://127.0.0.1:3000",      # React dev server via docker-compose (IP)
-    "http://localhost:5173",      # React Vite dev server
-    "http://127.0.0.1:5173",      # React Vite dev server (IP)
-    # NOTE: In production, add the FRONTEND_URL from env vars here
+_DEV_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
+
+_extra = [u.strip() for u in settings.frontend_url.split(",") if u.strip()]
+origins = _extra + _DEV_ORIGINS if _extra else _DEV_ORIGINS
 
 app.add_middleware(
     CORSMiddleware,

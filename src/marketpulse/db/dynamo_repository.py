@@ -236,6 +236,16 @@ class DynamoRepository:
             count += response.get("Count", 0)
         return count
 
+    def clear_festivals(self) -> None:
+        table = self._table("marketpulse_festivals")
+        items = self._scan_all("marketpulse_festivals")
+        with table.batch_writer() as batch:
+            for item in items:
+                batch.delete_item(Key={
+                    "festival_name": item["festival_name"],
+                    "date": item["date"],
+                })
+
     def seed_festivals(self, festivals: list[dict]) -> None:
         table = self._table("marketpulse_festivals")
         with table.batch_writer() as batch:
@@ -320,6 +330,26 @@ class DynamoRepository:
             }
 
         return None
+
+    def list_recent_recommendations(self, limit: int = 10) -> list[dict[str, Any]]:
+        items = self._scan_all("marketpulse_recommendations_log")
+        normalized: list[dict[str, Any]] = []
+        for item in items:
+            ts = str(item.get("timestamp", ""))
+            category = str(item.get("category", "unknown"))
+            insight = str(item.get("insight", ""))
+            risk_score = float(item.get("risk_score", 0.0))
+            normalized.append(
+                {
+                    "category": category,
+                    "timestamp": ts,
+                    "risk_score": risk_score,
+                    "insight": insight,
+                }
+            )
+
+        normalized.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        return normalized[: max(1, int(limit))]
 
     # ------------------------------------------------------------------
     # Forecast Cache
