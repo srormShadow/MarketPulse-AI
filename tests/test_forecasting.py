@@ -53,7 +53,7 @@ def test_forecast_returns_correct_length(db_session, repo):
 def test_forecast_columns_exist(db_session, repo):
     _seed_forecasting_data(db_session)
     out = forecast_next_n_days(repo, "Edible Oil", n_days=30)
-    assert list(out.columns) == ["date", "predicted_mean", "lower_95", "upper_95"]
+    assert list(out.columns) == ["date", "predicted_mean", "lower_95", "upper_95", "festival_score"]
 
 
 def test_no_negative_predictions(db_session, repo):

@@ -8,8 +8,19 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-import boto3
-from botocore.exceptions import ClientError
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+except ModuleNotFoundError:  # pragma: no cover - exercised in lean test envs
+    boto3 = None
+
+    class ClientError(Exception):
+        """Fallback ClientError type when botocore is unavailable."""
+
+        def __init__(self, response: dict | None = None, operation_name: str = "") -> None:
+            super().__init__(f"S3 client unavailable for operation '{operation_name}'")
+            self.response = response or {"Error": {"Code": "Unavailable"}}
+            self.operation_name = operation_name
 
 from marketpulse.core.config import get_settings
 
@@ -32,6 +43,8 @@ def _boto_kwargs() -> dict[str, str]:
 
 
 def _s3_client():
+    if boto3 is None:
+        raise RuntimeError("boto3 is not installed. Install boto3 to enable S3 features.")
     return boto3.client("s3", **_boto_kwargs())
 
 

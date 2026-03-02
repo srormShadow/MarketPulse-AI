@@ -8,6 +8,7 @@ festival impact and lag sensitivity.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -18,6 +19,8 @@ from marketpulse.services.forecasting import train_model
 
 if TYPE_CHECKING:
     from marketpulse.db.repository import DataRepository
+
+logger = logging.getLogger(__name__)
 
 
 def analyze_category_model(repo: DataRepository, category: str) -> dict[str, Any]:
@@ -113,7 +116,7 @@ def compare_categories(
             row["intercept"] = analysis["intercept"]
             results.append(row)
         except ValueError as e:
-            print(f"Warning: Skipping {category} - {e}")
+            logger.warning("Skipping %s - %s", category, e)
             continue
 
     if not results:

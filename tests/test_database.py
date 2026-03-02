@@ -57,4 +57,4 @@ def test_festival_seed_is_idempotent(db_session):
     seed_festivals_if_empty(repo)
 
     rows = db_session.scalars(select(Festival)).all()
-    assert len(rows) == 3
+    assert len(rows) == 15

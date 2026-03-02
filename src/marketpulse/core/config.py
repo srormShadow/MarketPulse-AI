@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     s3_data_bucket: str = "marketpulse-data"
     s3_model_bucket: str = "marketpulse-models"
 
+    # CORS — comma-separated allowed origins (empty = dev defaults only)
+    frontend_url: str = ""
+
     log_level: str = "INFO"
     log_format: str = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 

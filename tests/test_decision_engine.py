@@ -29,18 +29,20 @@ def sample_forecast_df() -> pd.DataFrame:
 
 def test_calculate_safety_stock(sample_forecast_df: pd.DataFrame):
     """Test safety stock calculation."""
-    safety_stock = calculate_safety_stock(sample_forecast_df, service_level=0.95)
+    safety_stock, festival_buffer_applied = calculate_safety_stock(sample_forecast_df, service_level=0.95)
 
     assert safety_stock >= 0
     assert isinstance(safety_stock, float)
+    assert isinstance(festival_buffer_applied, bool)
 
 
 def test_calculate_safety_stock_empty_df():
     """Test safety stock with empty DataFrame."""
     empty_df = pd.DataFrame(columns=["predicted_mean", "lower_95", "upper_95"])
-    safety_stock = calculate_safety_stock(empty_df)
+    safety_stock, festival_buffer_applied = calculate_safety_stock(empty_df)
 
     assert safety_stock == 0.0
+    assert festival_buffer_applied is False
 
 
 def test_calculate_reorder_point(sample_forecast_df: pd.DataFrame):
