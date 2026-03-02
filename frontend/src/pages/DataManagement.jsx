@@ -78,6 +78,10 @@ const DataManagement = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [inventoryValues, setInventoryValues] = useState(DEFAULT_INVENTORY);
+  const [inventoryDraft, setInventoryDraft] = useState(DEFAULT_INVENTORY);
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyMessage, setApplyMessage] = useState('');
+  const [applyError, setApplyError] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -89,12 +93,14 @@ const DataManagement = () => {
   const [recommendations, setRecommendations] = useState([]);
   const [recommendationFallback, setRecommendationFallback] = useState(false);
   const [retrainingCategory, setRetrainingCategory] = useState('');
+  const [seeding, setSeeding] = useState(false);
+  const [seedStatus, setSeedStatus] = useState(null);
 
-  const loadOperationalData = async () => {
+  const loadOperationalData = async (inventorySnapshot = inventoryValues) => {
     const batchPayload = {
       categories: CATEGORIES,
       n_days: 30,
-      inventory: inventoryValues,
+      inventory: inventorySnapshot,
       lead_times: DEFAULT_LEAD_TIMES,
     };
 
@@ -153,7 +159,7 @@ const DataManagement = () => {
   };
 
   useEffect(() => {
-    loadOperationalData();
+    loadOperationalData(inventoryValues);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -166,6 +172,38 @@ const DataManagement = () => {
     setUploadError('');
     const summary = await parseCsvSummary(file);
     setUploadSummary(summary);
+  };
+
+  const hasInventoryChanges = useMemo(() => {
+    return CATEGORIES.some(
+      (category) => Number(inventoryDraft[category] || 0) !== Number(inventoryValues[category] || 0),
+    );
+  }, [inventoryDraft, inventoryValues]);
+
+  const handleApplyInventoryChanges = async () => {
+    const normalized = {};
+    for (const category of CATEGORIES) {
+      const raw = Number(inventoryDraft[category]);
+      if (!Number.isFinite(raw) || raw < 0) {
+        setApplyError(`Invalid stock value for ${category}. Enter a non-negative number.`);
+        setApplyMessage('');
+        return;
+      }
+      normalized[category] = Math.round(raw);
+    }
+
+    setIsApplying(true);
+    setApplyError('');
+    setApplyMessage('');
+    try {
+      setInventoryValues(normalized);
+      await loadOperationalData(normalized);
+      setApplyMessage('Changes applied successfully.');
+    } catch {
+      setApplyError('Failed to apply inventory changes. Try again.');
+    } finally {
+      setIsApplying(false);
+    }
   };
 
   const handleUpload = async () => {
@@ -198,7 +236,7 @@ const DataManagement = () => {
           modelsWillRetrain: true,
         });
       }
-      await loadOperationalData();
+      await loadOperationalData(inventoryValues);
     } catch (err) {
       setUploadStatus('error');
       const details = err?.response?.data?.errors?.[0]?.issue;
@@ -208,13 +246,31 @@ const DataManagement = () => {
     }
   };
 
+  const handleSeedDemo = async () => {
+    setSeeding(true);
+    setSeedStatus(null);
+    try {
+      const res = await apiClient.post('/seed_demo');
+      const data = res?.data || {};
+      setSeedStatus({ ok: true, skus: data.skus_inserted, sales: data.sales_inserted });
+      const nowIso = new Date().toISOString();
+      CATEGORIES.forEach((c) => localStorage.setItem(`last_upload_${c}`, nowIso));
+      await loadOperationalData(inventoryValues);
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Demo seed failed.';
+      setSeedStatus({ ok: false, message: msg });
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   const handleRetrain = async (category) => {
     setRetrainingCategory(category);
     try {
       await apiClient.post(`/retrain/${encodeURIComponent(category)}`);
       const now = new Date().toISOString();
       localStorage.setItem(`model_trained_${category}`, now);
-      await loadOperationalData();
+      await loadOperationalData(inventoryValues);
     } catch {
       setUploadError(`Retrain endpoint unavailable for ${category}.`);
     } finally {
@@ -257,13 +313,19 @@ const DataManagement = () => {
         icon={<FileSpreadsheet size={18} />}
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <button className="group relative overflow-hidden p-6 rounded-xl bg-gradient-to-br from-blue-600/20 to-blue-700/10 border border-blue-500/20 hover:border-blue-500/40 transition-all duration-300 cursor-pointer flex flex-col items-center justify-center gap-3 text-center min-h-[180px]">
+          <button
+            onClick={handleSeedDemo}
+            disabled={seeding}
+            className="group relative overflow-hidden p-6 rounded-xl bg-gradient-to-br from-blue-600/20 to-blue-700/10 border border-blue-500/20 hover:border-blue-500/40 transition-all duration-300 cursor-pointer flex flex-col items-center justify-center gap-3 text-center min-h-[180px] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <div className="p-3.5 bg-blue-500/15 rounded-xl group-hover:scale-110 transition-transform duration-300">
-              <Database size={26} className="text-blue-400" />
+              {seeding ? <RefreshCw size={26} className="text-blue-400 animate-spin" /> : <Database size={26} className="text-blue-400" />}
             </div>
             <div>
-              <p className="font-bold text-[#F1F5F9] text-base">Use Demo Dataset</p>
-              <p className="text-xs text-[#64748B] mt-1">Load seeded sample data for quick testing</p>
+              <p className="font-bold text-[#F1F5F9] text-base">{seeding ? 'Seeding...' : 'Use Demo Dataset'}</p>
+              <p className="text-xs text-[#64748B] mt-1">
+                {seedStatus?.ok ? `Loaded ${seedStatus.skus} SKUs + ${seedStatus.sales} sales rows` : seedStatus?.message || 'Load seeded sample data for quick testing'}
+              </p>
             </div>
           </button>
 
@@ -433,14 +495,35 @@ const DataManagement = () => {
                 <div className="relative group">
                   <input
                     type="number"
-                    value={inventoryValues[category]}
-                    onChange={(e) => setInventoryValues((prev) => ({ ...prev, [category]: Number(e.target.value) }))}
+                    min={0}
+                    value={inventoryDraft[category]}
+                    onChange={(e) => {
+                      const nextValue = e.target.value;
+                      setInventoryDraft((prev) => ({
+                        ...prev,
+                        [category]: nextValue === '' ? '' : Number(nextValue),
+                      }));
+                      setApplyMessage('');
+                      setApplyError('');
+                    }}
                     className="w-full bg-[#0B1220] border border-white/10 rounded-xl px-4 py-3 text-[#E2E8F0] focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/30 outline-none transition-all font-mono"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#475569] font-medium">units</span>
                 </div>
               </div>
             ))}
+            <div className="md:col-span-3 flex items-center gap-3">
+              <button
+                onClick={handleApplyInventoryChanges}
+                disabled={isApplying || !hasInventoryChanges}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isApplying && <RefreshCw size={14} className="animate-spin" />}
+                {isApplying ? 'Applying...' : 'Apply Changes'}
+              </button>
+              {applyMessage && <span className="text-emerald-300 text-sm">{applyMessage}</span>}
+              {applyError && <span className="text-red-300 text-sm">{applyError}</span>}
+            </div>
           </div>
         )}
       </GlassCard>
