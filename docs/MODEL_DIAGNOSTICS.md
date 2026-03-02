@@ -12,16 +12,16 @@ Verify that:
 3. Lag sensitivity differs by category type
 4. Models successfully capture category-specific demand dynamics
 
-## Module: `app/services/model_diagnostics.py`
+## Module: `src/marketpulse/services/model_diagnostics.py`
 
 ### Core Functions
 
-#### 1. `analyze_category_model(session, category)`
+#### 1. `analyze_category_model(repo, category)`
 
 Analyzes a trained model for a specific category.
 
 **Parameters:**
-- `session`: SQLAlchemy session
+- `repo`: DataRepository instance
 - `category`: Product category name (e.g., "Snacks", "Edible Oil")
 
 **Returns:**
@@ -47,23 +47,23 @@ Analyzes a trained model for a specific category.
 
 **Example:**
 ```python
-from app.services.model_diagnostics import analyze_category_model
-from app.db.session import SessionLocal
+from marketpulse.services.model_diagnostics import analyze_category_model
+from marketpulse.db.get_repo import get_repo
 
-session = SessionLocal()
-result = analyze_category_model(session, "Snacks")
+repo = next(get_repo())  # or inject via FastAPI Depends
+result = analyze_category_model(repo, "Snacks")
 
 print(f"Festival coefficient: {result['coefficients']['festival_score']}")
 # Output: Festival coefficient: 15.2
 # Positive value indicates festival boost
 ```
 
-#### 2. `compare_categories(session, categories)`
+#### 2. `compare_categories(repo, categories)`
 
 Compares learned coefficients across multiple categories.
 
 **Parameters:**
-- `session`: SQLAlchemy session
+- `repo`: DataRepository instance
 - `categories`: List of category names
 
 **Returns:**
@@ -74,10 +74,10 @@ DataFrame where:
 
 **Example:**
 ```python
-from app.services.model_diagnostics import compare_categories
+from marketpulse.services.model_diagnostics import compare_categories
 
 categories = ["Snacks", "Edible Oil", "Staples"]
-comparison = compare_categories(session, categories)
+comparison = compare_categories(repo, categories)
 
 print(comparison["festival_score"])
 # Output:
@@ -86,12 +86,12 @@ print(comparison["festival_score"])
 # Staples       18.5
 ```
 
-#### 3. `rank_feature_importance(session, categories, feature)`
+#### 3. `rank_feature_importance(repo, categories, feature)`
 
 Ranks categories by importance of a specific feature.
 
 **Parameters:**
-- `session`: SQLAlchemy session
+- `repo`: DataRepository instance
 - `categories`: List of category names
 - `feature`: Feature name to rank by
 
@@ -104,9 +104,9 @@ DataFrame with columns:
 
 **Example:**
 ```python
-from app.services.model_diagnostics import rank_feature_importance
+from marketpulse.services.model_diagnostics import rank_feature_importance
 
-ranking = rank_feature_importance(session, categories, "festival_score")
+ranking = rank_feature_importance(repo, categories, "festival_score")
 print(ranking)
 # Output:
 #         category  coefficient  abs_coefficient  rank
@@ -115,12 +115,12 @@ print(ranking)
 # 2        Snacks         15.2             15.2     3
 ```
 
-#### 4. `summarize_category_behavior(session, category)`
+#### 4. `summarize_category_behavior(repo, category)`
 
 Generates a behavioral summary for a category's model.
 
 **Parameters:**
-- `session`: SQLAlchemy session
+- `repo`: DataRepository instance
 - `category`: Product category name
 
 **Returns:**
@@ -139,19 +139,19 @@ Generates a behavioral summary for a category's model.
 
 **Example:**
 ```python
-from app.services.model_diagnostics import summarize_category_behavior
+from marketpulse.services.model_diagnostics import summarize_category_behavior
 
-summary = summarize_category_behavior(session, "Snacks")
+summary = summarize_category_behavior(repo, "Snacks")
 print(summary["summary"])
 # Output: "Snacks is highly festival-sensitive with strong momentum effects"
 ```
 
-#### 5. `compare_feature_sensitivity(session, categories)`
+#### 5. `compare_feature_sensitivity(repo, categories)`
 
 Identifies which category is most sensitive to each feature type.
 
 **Parameters:**
-- `session`: SQLAlchemy session
+- `repo`: DataRepository instance
 - `categories`: List of category names
 
 **Returns:**
@@ -167,80 +167,11 @@ Identifies which category is most sensitive to each feature type.
 
 **Example:**
 ```python
-from app.services.model_diagnostics import compare_feature_sensitivity
+from marketpulse.services.model_diagnostics import compare_feature_sensitivity
 
-sensitivity = compare_feature_sensitivity(session, categories)
+sensitivity = compare_feature_sensitivity(repo, categories)
 print(f"Most festival-sensitive: {sensitivity['festival_sensitive']['category']}")
 # Output: Most festival-sensitive: Edible Oil
-```
-
-## Verification Script: `verify_category_behavior.py`
-
-### Purpose
-
-Demonstrates that different product categories learn different behavioral patterns.
-
-### What It Does
-
-1. Seeds database with 3 categories having distinct patterns:
-   - **Edible Oil**: Highly festival-sensitive
-   - **Snacks**: Momentum-driven with moderate festival impact
-   - **Staples**: Stable with low festival impact
-
-2. Analyzes each category individually
-
-3. Compares categories side-by-side
-
-4. Ranks categories by feature importance
-
-5. Identifies feature sensitivity leaders
-
-6. Generates behavioral summaries
-
-7. Validates that coefficients differ significantly
-
-### Running the Script
-
-```bash
-python verify_category_behavior.py
-```
-
-### Expected Output
-
-```
-================================================================================
- CATEGORY-SPECIFIC MODEL BEHAVIOR VERIFICATION
-================================================================================
-
-1. Individual Category Analysis
-   - Shows coefficients for each category
-   - Displays training samples and intercept
-
-2. Category Comparison Table
-   - Side-by-side coefficient comparison
-   - Easy visual inspection of differences
-
-3. Feature Importance Rankings
-   - Ranks categories by each feature
-   - Shows which category is most sensitive
-
-4. Feature Sensitivity Leaders
-   - Identifies category leaders by feature type
-   - Shows coefficient magnitudes
-
-5. Behavioral Summaries
-   - Human-readable descriptions
-   - Classification of behavior patterns
-
-6. Key Insights
-   - Most festival-sensitive category
-   - Most momentum-driven category
-   - Most stable category
-   - Coefficient variance analysis
-
-7. Validation
-   - Confirms significant differences
-   - Verifies distinct patterns learned
 ```
 
 ## Interpreting Coefficients
@@ -272,7 +203,7 @@ python verify_category_behavior.py
 Understand which features drive demand for each category:
 
 ```python
-analysis = analyze_category_model(session, "Snacks")
+analysis = analyze_category_model(repo, "Snacks")
 dominant = max(analysis["feature_importance"].items(), key=lambda x: x[1])
 print(f"Snacks demand is primarily driven by: {dominant[0]}")
 ```
@@ -282,7 +213,7 @@ print(f"Snacks demand is primarily driven by: {dominant[0]}")
 Identify which categories benefit most from festival promotions:
 
 ```python
-ranking = rank_feature_importance(session, categories, "festival_score")
+ranking = rank_feature_importance(repo, categories, "festival_score")
 top_category = ranking.iloc[0]["category"]
 print(f"Focus festival promotions on: {top_category}")
 ```
@@ -292,7 +223,7 @@ print(f"Focus festival promotions on: {top_category}")
 Determine which categories need momentum-based inventory management:
 
 ```python
-ranking = rank_feature_importance(session, categories, "lag_1")
+ranking = rank_feature_importance(repo, categories, "lag_1")
 momentum_categories = ranking[ranking["abs_coefficient"] > 0.1]["category"].tolist()
 print(f"Use momentum-based inventory for: {momentum_categories}")
 ```
@@ -302,7 +233,7 @@ print(f"Use momentum-based inventory for: {momentum_categories}")
 Verify that models learn meaningful patterns:
 
 ```python
-comparison = compare_categories(session, categories)
+comparison = compare_categories(repo, categories)
 variance = comparison["festival_score"].var()
 if variance > 1.0:
     print("✓ Models learn distinct festival patterns")
@@ -461,55 +392,35 @@ Cross-reference diagnostic results with actual demand patterns.
 ## Quick Reference
 
 ```python
-from app.services.model_diagnostics import (
+from marketpulse.services.model_diagnostics import (
     analyze_category_model,
     compare_categories,
     rank_feature_importance,
     summarize_category_behavior,
     compare_feature_sensitivity
 )
-from app.db.session import SessionLocal
+from marketpulse.db.get_repo import get_repo
 
-session = SessionLocal()
+repo = next(get_repo())  # or inject via FastAPI Depends
 
 # Single category analysis
-result = analyze_category_model(session, "Snacks")
+result = analyze_category_model(repo, "Snacks")
 
 # Compare categories side-by-side
-comparison = compare_categories(session, ["Snacks", "Edible Oil", "Staples"])
+comparison = compare_categories(repo, ["Snacks", "Edible Oil", "Staples"])
 
 # Rank by specific feature
-ranking = rank_feature_importance(session, ["Snacks", "Edible Oil", "Staples"], "festival_score")
+ranking = rank_feature_importance(repo, ["Snacks", "Edible Oil", "Staples"], "festival_score")
 
 # Human-readable summary
-summary = summarize_category_behavior(session, "Snacks")
+summary = summarize_category_behavior(repo, "Snacks")
 
 # Find sensitivity leaders
-leaders = compare_feature_sensitivity(session, ["Snacks", "Edible Oil", "Staples"])
+leaders = compare_feature_sensitivity(repo, ["Snacks", "Edible Oil", "Staples"])
 ```
-
-## Appendix: Verification Results
-
-Sample output from `python verify_category_behavior.py`:
-
-```
-            time_index  weekday  festival_score    lag_1    lag_7
-Edible Oil      4.0551   0.4690          6.8185  12.6961 -15.7023
-Snacks          4.0863  15.8080          5.3943   3.9441 -12.7953
-Staples         1.8114  -0.4398          5.8537  12.2536 -13.8419
-```
-
-**Feature Sensitivity Leaders:**
-- Festival-sensitive: Edible Oil (6.82)
-- Momentum-driven: Edible Oil (12.70)
-- Weekly-seasonal: Edible Oil (15.70)
-- Trend-following: Snacks (4.09)
-- Volatility-aware: Edible Oil (9.82)
-
-**Coefficient Variance:** weekday: 83.35, lag_1: 24.31, festival_score: 0.53 — confirms models learn distinct patterns per category.
 
 ## References
 
 - BayesianRidge Documentation: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.BayesianRidge.html
-- Feature Engineering: `app/services/feature_engineering.py`
-- Forecasting: `app/services/forecasting.py`
+- Feature Engineering: `src/marketpulse/services/feature_engineering.py`
+- Forecasting: `src/marketpulse/services/forecasting.py`

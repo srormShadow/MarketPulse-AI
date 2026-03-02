@@ -1,6 +1,6 @@
 ﻿[run]
 branch = True
-source = app
+source = src/marketpulse
 omit =
     tests/*
 

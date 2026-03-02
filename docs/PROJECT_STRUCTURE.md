@@ -1,175 +1,125 @@
 # MarketPulse-AI Project Structure
 
-## Directory Organization
+## Directory Layout
 
 ```
 MarketPulse-AI/
-├── app/                          # Application source code
-│   ├── api/                      # API versioning and routing
-│   ├── core/                     # Configuration and logging
-│   ├── dashboard/                # Streamlit dashboard
-│   │   ├── app.py                # Main dashboard application
-│   │   └── __init__.py           # Package marker
-│   ├── db/                       # Database setup and sessions
+├── src/marketpulse/              # Backend application (FastAPI)
+│   ├── main.py                   # FastAPI app, CORS, lifespan
+│   ├── api/                      # Health-check router
+│   │   └── v1/health.py
+│   ├── core/                     # Settings (pydantic-settings), logging
+│   │   ├── config.py
+│   │   └── logging.py
+│   ├── db/                       # Database layer
+│   │   ├── repository.py         # DataRepository protocol + SQLiteRepository
+│   │   ├── dynamo_repository.py  # DynamoRepository implementation
+│   │   ├── dynamo.py             # boto3 table schemas + ensure_tables_exist
+│   │   ├── get_repo.py           # FastAPI dependency factory
+│   │   ├── session.py            # SQLAlchemy engine + SessionLocal
+│   │   ├── init_db.py            # Startup init (create tables, seed festivals)
+│   │   └── base.py               # Declarative base
 │   ├── models/                   # SQLAlchemy ORM models
+│   │   ├── sku.py
+│   │   ├── sales.py
+│   │   ├── festival.py
+│   │   └── health_ping.py
 │   ├── routes/                   # API endpoint handlers
+│   │   ├── router.py             # Central router (includes all sub-routers)
+│   │   ├── upload.py             # POST /upload_csv
+│   │   ├── forecast.py           # POST /forecast/{category}, /forecast/batch
+│   │   ├── debug.py              # GET /skus, /sales_count, /festivals
+│   │   ├── diagnostics.py        # GET /diagnostics/all, /diagnostics/{cat}
+│   │   ├── insights.py           # GET /insights/{category} (Bedrock)
+│   │   └── recommendations.py    # GET /recommendations/recent
 │   ├── schemas/                  # Pydantic request/response schemas
-│   ├── services/                 # Business logic and algorithms
-│   └── main.py                   # FastAPI application entry point
+│   │   ├── forecast.py
+│   │   ├── upload.py
+│   │   ├── insights.py
+│   │   └── debug.py
+│   ├── services/                 # Business logic
+│   │   ├── forecasting.py        # BayesianRidge train + recursive forecast
+│   │   ├── feature_engineering.py # Lag features, festival proximity, time index
+│   │   ├── decision_engine.py    # Risk scoring, reorder/safety stock calc
+│   │   ├── model_diagnostics.py  # Coefficient extraction, category comparison
+│   │   ├── csv_ingestion.py      # CSV parse + upsert (SKU + Sales)
+│   │   ├── festival_seed.py      # 2026 Indian festival calendar seed
+│   │   ├── ingestion/
+│   │   │   └── s3_archive.py     # S3 upload after CSV ingestion
+│   │   └── insights/
+│   │       └── bedrock_insights.py  # AWS Bedrock GenAI summaries
+│   └── infrastructure/
+│       └── s3.py                 # S3 client helper
 │
-├── data/                         # Demo datasets and sample files
-│   ├── demo_sales_365.csv        # Sample sales data
-│   ├── demo_sku_master.csv       # Sample SKU master data
-│   └── *.png                     # Visualization outputs
+├── frontend/                     # React SPA (Vite + Tailwind CSS)
+│   └── src/
+│       ├── App.jsx               # Router, sidebar, layout
+│       ├── api/client.js         # Centralized axios client
+│       ├── pages/                # 4 main pages
+│       │   ├── PortfolioOverview.jsx
+│       │   ├── CategoryIntelligence.jsx
+│       │   ├── FestivalIntelligence.jsx
+│       │   └── DataManagement.jsx
+│       └── components/
+│           ├── ui/               # GlassCard, StatCard, RiskDrawer
+│           └── festival/         # FestivalCalendar, PredictionSidebar
 │
-├── docs/                         # Documentation and guides
-│   ├── API_*.md                  # API endpoint documentation
-│   ├── FORECAST_*.md             # Forecasting documentation
-│   ├── MODEL_*.md                # Model diagnostics documentation
-│   ├── RECURSIVE_*.md            # Recursive forecasting docs
-│   ├── DIAGNOSTICS_*.md/txt      # Diagnostics documentation
-│   ├── IMPLEMENTATION_*.md       # Implementation summaries
-│   ├── QUICK_REFERENCE.md        # Quick reference guide
-│   └── README.md                 # Documentation index
+├── tests/                        # pytest suite (122+ tests)
+│   ├── conftest.py               # Fixtures (engine, session, repo, client)
+│   ├── utils/csv_factory.py      # CSV test data generators
+│   └── test_*.py                 # Test modules
 │
-├── scripts/                      # Utility and verification scripts
-│   ├── generate_demo_dataset.py  # Generate demo data
-│   ├── verify_dataset.py         # Validate dataset
-│   ├── verify_features.py        # Verify feature engineering
-│   ├── verify_forecasting.py     # Test forecasting
-│   ├── verify_recursive_forecast.py  # Validate recursive forecasting
-│   ├── verify_category_behavior.py   # Analyze category models
-│   └── README.md                 # Scripts documentation
+├── scripts/                      # Utility scripts
+│   ├── generate_demo_dataset.py  # Synthetic data generator
+│   └── init_local.py             # DynamoDB Local + LocalStack bootstrap
 │
-├── tests/                        # Comprehensive test suite (117 tests)
-│   ├── data/                     # Test fixtures and sample CSVs
-│   ├── utils/                    # Test utilities
-│   ├── test_*.py                 # Test modules
-│   └── conftest.py               # Pytest configuration
+├── infra/                        # AWS deployment configs
+│   ├── deploy.sh                 # ECR push + ECS deploy script
+│   ├── ecs-task-definition.json  # Fargate task definition
+│   └── aws-api-gateway-config.json  # API Gateway REST proxy
 │
-├── .env.example                  # Environment template
-├── .gitignore                    # Git ignore rules
-├── GETTING_STARTED.md            # Quick start guide
-├── LICENSE                       # Project license
-├── README.md                     # Project overview
-├── requirements.txt              # Production dependencies
-├── requirements-dev.txt          # Development dependencies
-├── run_all.py                    # Launch backend + dashboard
-├── run_backend.py                # Launch backend only
-├── run_dashboard.py              # Launch dashboard only
-└── marketpulse.db                # SQLite database (generated)
+├── docs/                         # Documentation
+├── data/                         # Demo CSV datasets + SQLite DB
+│
+├── Dockerfile                    # Production container
+├── docker-compose.yml            # Local full-stack (backend + DynamoDB + S3 + frontend)
+├── run_backend.py                # Dev launcher (uvicorn --reload)
+├── requirements.txt              # Production Python deps
+├── requirements-dev.txt          # Test deps (pytest, httpx)
+├── pytest.ini                    # pytest config (pythonpath = src)
+├── .coveragerc                   # Coverage config
+├── .env.example                  # Environment variable template
+├── .gitignore
+├── .dockerignore
+├── LICENSE                       # MIT
+└── README.md
 ```
 
-## Key Directories
+## Key Architecture Decisions
 
-### `/app` - Application Code
-Contains all production application code organized by function:
-- **api/**: API versioning and route registration
-- **core/**: Configuration, logging, and core utilities
-- **db/**: Database connection and session management
-- **models/**: SQLAlchemy ORM models (SKU, Sales, Festival, etc.)
-- **routes/**: FastAPI route handlers (upload, forecast, debug, health)
-- **schemas/**: Pydantic schemas for request/response validation
-- **services/**: Business logic (forecasting, feature engineering, decision engine, diagnostics)
+### Repository Protocol Pattern
+All database I/O goes through `DataRepository` (a Python protocol in `db/repository.py`).
+Two implementations exist: `SQLiteRepository` (SQLAlchemy) and `DynamoRepository` (boto3).
+The `USE_DYNAMO` env var controls which backend is active via `db/get_repo.py`.
 
-### `/data` - Demo Data
-Sample datasets for testing and demonstration:
-- Sales history (365 days)
-- SKU master data
-- Visualization outputs
+### Service Layer
+Services never import SQLAlchemy or boto3 directly — they depend only on `DataRepository`.
 
-### `/docs` - Documentation
-Comprehensive documentation organized by topic:
-- **API Documentation**: Complete API reference with examples
-- **Technical Guides**: Deep dives into forecasting and diagnostics
-- **Implementation Summaries**: Feature overviews and upgrade notes
-- **Quick References**: Common tasks and commands
-
-### `/scripts` - Utilities
-Standalone scripts for data generation and verification:
-- Data generation tools
-- Verification and validation scripts
-- Category behavior analysis
-- Each script is self-contained and documented
-
-### `/tests` - Test Suite
-117 comprehensive tests covering:
-- API endpoints (health, upload, forecast, debug)
-- CSV ingestion and validation
-- Feature engineering and lag features
-- Forecasting algorithms
-- Decision engine logic
-- Model diagnostics
-- Error handling and edge cases
-- Performance benchmarks
-
-## File Organization Principles
-
-1. **Root Directory**: Only essential files (README, LICENSE, requirements, config)
-2. **Documentation**: All `.md` and `.txt` docs in `/docs`
-3. **Scripts**: All utility scripts in `/scripts`
-4. **Source Code**: All application code in `/app`
-5. **Tests**: All test code in `/tests`
-6. **Data**: All sample data in `/data`
-
-## Quick Navigation
-
-- **Getting Started**: See [README.md](README.md)
-- **API Reference**: See [docs/API_INDEX.md](docs/API_INDEX.md)
-- **Documentation Index**: See [docs/README.md](docs/README.md)
-- **Scripts Guide**: See [scripts/README.md](scripts/README.md)
-- **Run Tests**: `pytest tests/`
-- **Generate Data**: `python scripts/generate_demo_dataset.py`
-- **Start Server**: `uvicorn app.main:app --reload`
-
-## Development Workflow
-
-1. **Setup**: Install dependencies from `requirements.txt` and `requirements-dev.txt`
-2. **Generate Data**: Run `scripts/generate_demo_dataset.py`
-3. **Start Server**: Run `uvicorn app.main:app --reload`
-4. **Run Tests**: Run `pytest tests/`
-5. **Verify**: Run scripts in `/scripts` to validate functionality
-6. **Document**: Update relevant docs in `/docs`
-
-## Production Deployment
-
-For production, only these directories are needed:
-- `/app` - Application code
-- `requirements.txt` - Dependencies
-- `.env` - Environment configuration (create from `.env.example`)
-
-Optional for production:
-- `/data` - If using demo data
-- `marketpulse.db` - SQLite database (or use external DB)
-
-Not needed in production:
-- `/docs` - Documentation (keep for reference)
-- `/scripts` - Utility scripts (keep for maintenance)
-- `/tests` - Test suite (keep for CI/CD)
-- `requirements-dev.txt` - Development tools
-
-## File Counts
-
-- **Application Code**: ~3,500 lines
-- **Test Code**: ~2,000 lines
-- **Documentation**: ~5,000 lines
-- **Scripts**: ~1,500 lines
-- **Total**: ~12,000 lines
+### Frontend
+Single `apiClient` (axios) in `api/client.js` handles all API calls. Base URL is set via
+`VITE_API_BASE_URL` env var. No scattered fetch calls.
 
 ## Technology Stack
 
-- **Framework**: FastAPI
-- **Database**: SQLAlchemy + SQLite
-- **ML**: scikit-learn (BayesianRidge)
-- **Data**: pandas, numpy
-- **Testing**: pytest
-- **Validation**: Pydantic
-
-## Status
-
-✅ Production Ready
-- 117 tests passing
-- Comprehensive documentation
-- Clean architecture
-- Type hints throughout
-- Full error handling
+| Layer | Technology |
+|-------|-----------|
+| Backend Framework | FastAPI |
+| Database (local) | SQLAlchemy + SQLite |
+| Database (cloud) | DynamoDB (boto3) |
+| ML | scikit-learn (BayesianRidge) |
+| Data Processing | pandas |
+| Frontend | React 19 + Vite + Tailwind CSS |
+| Charts | Recharts |
+| GenAI Insights | AWS Bedrock (Claude) |
+| Object Storage | S3 (via LocalStack locally) |
+| Container | Docker + ECS Fargate |

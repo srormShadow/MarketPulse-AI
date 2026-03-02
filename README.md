@@ -32,6 +32,7 @@ The system is designed for SME retail operators and planners who do not have dat
 | Amazon ECS Fargate | Runs FastAPI backend containers | No EC2 management, scalable API runtime for Python services |
 | Amazon DynamoDB | Stores inventory, sales aggregates, forecast cache, recommendation logs | Low-latency, key-based access for dashboard and API workloads |
 | Amazon S3 | Stores uploaded CSV files and trained model artifacts | Durable, low-cost object storage for data/model lifecycle |
+| AWS Lambda | Event-driven ML retraining trigger on S3 CSV upload | Serverless, zero-cost-at-idle automation for hands-free model refresh |
 | Amazon Bedrock | Generates AI insights from forecast + decision context | Managed GenAI integration without hosting foundation models |
 
 ## 3. What Value the AI Layer Adds
@@ -65,7 +66,8 @@ The system is designed for SME retail operators and planners who do not have dat
 3. FastAPI on ECS runs forecasting, decision logic, and Bedrock insight generation.
 4. DynamoDB stores operational records, caches, and logs.
 5. S3 stores CSV uploads and model objects; models are loaded from S3 during forecasting.
-6. Bedrock returns natural-language recommendations shown in the dashboard.
+6. S3 PUT events trigger a Lambda function that automatically retrains the relevant category model via API Gateway (event-driven ML retraining pipeline).
+7. Bedrock returns natural-language recommendations shown in the dashboard.
 
 ## 5. Features List
 
@@ -78,6 +80,7 @@ The system is designed for SME retail operators and planners who do not have dat
 | Forecast API + Cache | `/forecast/{category}`, `/forecast/batch` with warning and staleness checks | ECS Fargate, DynamoDB |
 | GenAI Insights API | `/insights/{category}`, `/insights/batch` with cache-aware logging | Bedrock, DynamoDB, ECS Fargate |
 | Model Persistence | Save/load trained models per category | S3, ECS Fargate |
+| Event-Driven ML Retraining | S3 upload auto-triggers model retrain per category via Lambda | S3, Lambda, API Gateway |
 
 ## 6. Local Setup Instructions
 
