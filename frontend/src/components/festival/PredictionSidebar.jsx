@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
 import { apiClient } from '../../api/client';
@@ -46,6 +47,13 @@ export default function PredictionSidebar({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !selectedDate || !selectedStock) return;
@@ -107,16 +115,23 @@ export default function PredictionSidebar({
 
   const hasHistoricalChart = chartPoints.length > 0;
 
-  return (
+  if (!isOpen) return null;
+
+  return createPortal(
     <>
+      {/* Backdrop */}
       <div
         onClick={onClose}
-        className={`fixed inset-0 z-40 bg-black/40 transition-opacity duration-300 ease-in-out ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ease-in-out opacity-100"
       />
-      <aside
-        className={`fixed right-0 top-0 z-50 h-full w-full max-w-[440px] border-l ${borderClass} bg-[#0B1220] shadow-2xl transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
-      >
-        <div className="flex h-full flex-col">
+
+      {/* Centered Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className={`relative w-full max-w-lg max-h-[85vh] rounded-2xl border ${borderClass} bg-[#0F172A] shadow-2xl shadow-black/40 animate-fade-in-up overflow-hidden`}
+        >
+          {/* Header */}
           <div className="flex items-start justify-between border-b border-white/10 px-5 py-4">
             <div>
               <p className="text-xs uppercase tracking-wider text-[#64748B]">Selected Date</p>
@@ -127,14 +142,15 @@ export default function PredictionSidebar({
             </div>
             <button
               onClick={onClose}
-              className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-[#CBD5E1] hover:bg-white/10"
-              aria-label="Close sidebar"
+              className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-[#CBD5E1] hover:bg-white/10 transition-colors"
+              aria-label="Close popup"
             >
               <X size={16} />
             </button>
           </div>
 
-          <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          {/* Scrollable content */}
+          <div className="space-y-4 overflow-y-auto px-5 py-4" style={{ maxHeight: 'calc(85vh - 90px)' }}>
             <section className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
               <label htmlFor="stock-select" className="block text-xs text-[#94A3B8]">
                 Stock
@@ -163,7 +179,7 @@ export default function PredictionSidebar({
               {!isPredictionLoading && !predictionError && predictionData && (
                 <div className="mt-2 space-y-2 text-sm text-[#CBD5E1]">
                   <p>Predicted demand: <span className="text-[#F1F5F9]">{predictionData.predicted_demand ?? 'N/A'}</span></p>
-                  <p>Risk score: <span className="text-[#F1F5F9]">{predictionData.risk_score ?? 'N/A'}</span></p>
+                  <p>Risk score: <span className="text-[#F1F5F9]">{predictionData.risk_score != null ? `${Math.round(Number(predictionData.risk_score) * 100)}%` : 'N/A'}</span></p>
                   <p>Confidence level: <span className="text-[#F1F5F9]">{predictionData.confidence_level ?? 'N/A'}</span></p>
                   <p>Suggested action: <span className="text-[#F1F5F9]">{predictionData.suggested_action ?? 'N/A'}</span></p>
                 </div>
@@ -208,7 +224,11 @@ export default function PredictionSidebar({
                           <CartesianGrid stroke="#1E293B" strokeDasharray="3 3" />
                           <XAxis dataKey="year" stroke="#64748B" />
                           <YAxis stroke="#64748B" />
-                          <Tooltip />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: '#1E293B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#E2E8F0', fontSize: 12 }}
+                            itemStyle={{ color: '#F1F5F9' }}
+                            labelStyle={{ color: '#F1F5F9' }}
+                          />
                           <Line type="monotone" dataKey="sales_volume" stroke="#38BDF8" strokeWidth={2} dot />
                         </LineChart>
                       </ResponsiveContainer>
@@ -223,7 +243,8 @@ export default function PredictionSidebar({
             </section>
           </div>
         </div>
-      </aside>
-    </>
+      </div>
+    </>,
+    document.body
   );
 }
