@@ -4,108 +4,6 @@ import {
   Clock, Target, ArrowRight, ShieldAlert, BarChart3,
 } from 'lucide-react';
 
-// ── Detailed risk data per category ──────────────────────────
-
-const riskDetails = {
-  Snacks: {
-    inventoryRisk: 0.83,
-    uncertaintyRisk: 0.71,
-    compositeRisk: 78,
-    currentStock: 2800,
-    requiredStock: 4200,
-    safetyStock: 600,
-    reorderPoint: 3200,
-    leadTime: 5,
-    forecast30d: 5240,
-    dailyAvgDemand: 175,
-    demandStdDev: 42,
-    daysUntilStockout: 16,
-    recommendedAction: 'Urgent Reorder',
-    orderQty: 1400,
-    reasons: [
-      'Current stock (2,800) is 12.5% below reorder point (3,200)',
-      'Demand coefficient of variation is 0.71 — high unpredictability',
-      'Diwali seasonal surge expected within forecast window',
-      'Only 16 days of stock remaining at current burn rate',
-    ],
-    forecastImpact: [
-      'Projected demand spike of +35% during festival period',
-      'Confidence interval widens significantly after day 15',
-      'Historical pattern shows 2.1x demand during Diwali week',
-    ],
-    reorderBreach: {
-      breached: true,
-      deficit: 400,
-      daysBelow: 8,
-      explanation: 'Stock fell below reorder point 8 days ago and has not recovered. Without immediate action, stockout is projected within 16 days.',
-    },
-  },
-  Staples: {
-    inventoryRisk: 0.16,
-    uncertaintyRisk: 0.22,
-    compositeRisk: 32,
-    currentStock: 5100,
-    requiredStock: 5500,
-    safetyStock: 800,
-    reorderPoint: 4400,
-    leadTime: 7,
-    forecast30d: 6100,
-    dailyAvgDemand: 203,
-    demandStdDev: 28,
-    daysUntilStockout: 25,
-    recommendedAction: 'Monitor',
-    orderQty: 0,
-    reasons: [
-      'Stock is comfortably above reorder point (5,100 vs 4,400)',
-      'Demand variability is low — coefficient of variation is 0.22',
-      'No major seasonal events in the near forecast window',
-    ],
-    forecastImpact: [
-      'Steady demand expected with minimal seasonal variation',
-      'Narrow confidence bands indicate high forecast reliability',
-    ],
-    reorderBreach: {
-      breached: false,
-      deficit: 0,
-      daysBelow: 0,
-      explanation: 'Current inventory is 15.9% above the reorder point. No action required at this time.',
-    },
-  },
-  'Edible Oil': {
-    inventoryRisk: 0.62,
-    uncertaintyRisk: 0.54,
-    compositeRisk: 65,
-    currentStock: 1900,
-    requiredStock: 3100,
-    safetyStock: 450,
-    reorderPoint: 2500,
-    leadTime: 10,
-    forecast30d: 3050,
-    dailyAvgDemand: 102,
-    demandStdDev: 38,
-    daysUntilStockout: 19,
-    recommendedAction: 'Schedule Reorder',
-    orderQty: 850,
-    reasons: [
-      'Current stock (1,900) is 24% below reorder point (2,500)',
-      'Long lead time (10 days) amplifies stockout risk',
-      'Demand variability is medium — coefficient of variation is 0.54',
-      'Pongal season historically drives +25% demand increase',
-    ],
-    forecastImpact: [
-      'Lead time covers 33% of the forecast window — delays are costly',
-      'Festival-driven demand increase of ~25% expected in 3 weeks',
-      'Confidence interval suggests possible peak demand of 4,100 units',
-    ],
-    reorderBreach: {
-      breached: true,
-      deficit: 600,
-      daysBelow: 3,
-      explanation: 'Stock dropped below reorder point 3 days ago. Given the 10-day lead time, an order placed today would arrive when stock is critically low.',
-    },
-  },
-};
-
 // ── Helpers ──────────────────────────────────────────────────
 
 const riskColor = (score) =>
@@ -114,13 +12,111 @@ const riskColor = (score) =>
 const riskLabel = (score) =>
   score >= 70 ? 'Critical' : score >= 50 ? 'Warning' : 'Healthy';
 
-const pct = (value, max) => Math.min(100, Math.round((value / max) * 100));
+const pct = (value, max) => max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+
+function buildReasons(data) {
+  const reasons = [];
+  if (data.currentStock < data.reorderPoint) {
+    const pctBelow = data.reorderPoint > 0
+      ? ((data.reorderPoint - data.currentStock) / data.reorderPoint * 100).toFixed(1)
+      : 0;
+    reasons.push(`Current stock (${data.currentStock.toLocaleString()}) is ${pctBelow}% below reorder point (${data.reorderPoint.toLocaleString()})`);
+  } else {
+    const pctAbove = data.reorderPoint > 0
+      ? ((data.currentStock - data.reorderPoint) / data.reorderPoint * 100).toFixed(1)
+      : 0;
+    reasons.push(`Stock is comfortably above reorder point (${data.currentStock.toLocaleString()} vs ${data.reorderPoint.toLocaleString()}, +${pctAbove}%)`);
+  }
+  if (data.uncertaintyRisk >= 0.5) {
+    reasons.push(`Demand variability is high — coefficient of variation is ${data.uncertaintyRisk.toFixed(2)}`);
+  } else if (data.uncertaintyRisk >= 0.3) {
+    reasons.push(`Demand variability is medium — coefficient of variation is ${data.uncertaintyRisk.toFixed(2)}`);
+  } else {
+    reasons.push(`Demand variability is low — coefficient of variation is ${data.uncertaintyRisk.toFixed(2)}`);
+  }
+  if (data.leadTime >= 10) {
+    reasons.push(`Long lead time (${data.leadTime} days) amplifies stockout risk`);
+  }
+  if (data.daysUntilStockout <= 14) {
+    reasons.push(`Only ${data.daysUntilStockout} days of stock remaining at current burn rate`);
+  }
+  return reasons;
+}
+
+function buildReorderBreach(data) {
+  const breached = data.currentStock < data.reorderPoint;
+  const deficit = breached ? data.reorderPoint - data.currentStock : 0;
+  let explanation;
+  if (breached) {
+    explanation = `Stock is ${deficit.toLocaleString()} units below the reorder point. ${data.leadTime > 0 ? `Given the ${data.leadTime}-day lead time, reorder soon to avoid stockout.` : 'Consider reordering now.'}`;
+  } else {
+    const abovePct = data.reorderPoint > 0
+      ? ((data.currentStock - data.reorderPoint) / data.reorderPoint * 100).toFixed(1)
+      : 0;
+    explanation = `Current inventory is ${abovePct}% above the reorder point. No action required at this time.`;
+  }
+  return { breached, deficit, explanation };
+}
 
 // ── Component ────────────────────────────────────────────────
 
-const RiskDrawer = ({ category, onClose }) => {
-  const data = riskDetails[category];
-  if (!data) return null;
+const RiskDrawer = ({ category, rowData, onClose }) => {
+  // Build display data from live rowData
+  const riskScore = rowData?.riskScore ?? 0;
+  const compositeRisk = Math.round(riskScore * 100);
+
+  // Derive inventory vs uncertainty risk from composite
+  // composite = 0.6 * inventory + 0.4 * uncertainty
+  // We approximate: if stock < reorder, inventory risk is high
+  const currentStock = rowData?.currentStock ?? 0;
+  const requiredStock = rowData?.requiredStock ?? 0;
+  const reorderPoint = rowData?.reorderPoint ?? 0;
+  const safetyStock = rowData?.safetyStock ?? 0;
+  const leadTime = rowData?.leadTime ?? 0;
+  const orderQuantity = rowData?.orderQuantity ?? 0;
+  const action = rowData?.action ?? 'MAINTAIN';
+
+  // Estimate sub-risks from available data
+  const inventoryRisk = reorderPoint > 0
+    ? Math.min(1, Math.max(0, (reorderPoint - currentStock) / reorderPoint))
+    : 0;
+  const uncertaintyRisk = inventoryRisk >= 0
+    ? Math.min(1, Math.max(0, (compositeRisk / 100 - 0.6 * inventoryRisk) / 0.4))
+    : riskScore;
+
+  const forecast = rowData?.forecast ?? [];
+  const forecast30d = forecast.slice(0, 30).reduce((sum, p) => sum + Number(p?.predicted_mean || 0), 0);
+  const dailyAvgDemand = forecast.length > 0
+    ? forecast.reduce((sum, p) => sum + Number(p?.predicted_mean || 0), 0) / forecast.length
+    : 0;
+  const daysUntilStockout = dailyAvgDemand > 0 ? Math.round(currentStock / dailyAvgDemand) : 999;
+
+  // Compute demand std dev from forecast points
+  const demands = forecast.map((p) => Number(p?.predicted_mean || 0));
+  const mean = demands.length > 0 ? demands.reduce((a, b) => a + b, 0) / demands.length : 0;
+  const demandStdDev = demands.length > 1
+    ? Math.round(Math.sqrt(demands.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (demands.length - 1)))
+    : 0;
+
+  const data = {
+    inventoryRisk,
+    uncertaintyRisk,
+    compositeRisk,
+    currentStock,
+    requiredStock,
+    safetyStock,
+    reorderPoint,
+    leadTime,
+    forecast30d: Math.round(forecast30d),
+    dailyAvgDemand: Math.round(dailyAvgDemand),
+    demandStdDev,
+    daysUntilStockout,
+    recommendedAction: action.replace(/_/g, ' '),
+    orderQty: orderQuantity,
+  };
+
+  data.reasons = buildReasons(data);
+  data.reorderBreach = buildReorderBreach(data);
 
   // Lock body scroll while drawer is open
   useEffect(() => {
@@ -181,7 +177,7 @@ const RiskDrawer = ({ category, onClose }) => {
               style={{ borderColor: riskColor(data.compositeRisk) }}
             >
               <span className="text-3xl font-black" style={{ color: riskColor(data.compositeRisk) }}>
-                {data.compositeRisk}
+                {data.compositeRisk}%
               </span>
             </div>
             <p className="text-sm font-bold uppercase tracking-wider" style={{ color: riskColor(data.compositeRisk) }}>
@@ -230,11 +226,13 @@ const RiskDrawer = ({ category, onClose }) => {
                   }}
                 />
                 {/* Reorder point marker */}
-                <div
-                  className="absolute top-0 h-full w-0.5 bg-purple-400"
-                  style={{ left: `${pct(data.reorderPoint, data.requiredStock)}%` }}
-                  title={`Reorder Point: ${data.reorderPoint}`}
-                />
+                {data.requiredStock > 0 && (
+                  <div
+                    className="absolute top-0 h-full w-0.5 bg-purple-400"
+                    style={{ left: `${pct(data.reorderPoint, data.requiredStock)}%` }}
+                    title={`Reorder Point: ${data.reorderPoint}`}
+                  />
+                )}
               </div>
               <div className="flex justify-between text-[10px] text-[#475569]">
                 <span>{stockPct}% filled</span>
@@ -258,14 +256,6 @@ const RiskDrawer = ({ category, onClose }) => {
               <MiniStat label="Daily Avg" value={data.dailyAvgDemand.toLocaleString()} />
               <MiniStat label="Std Dev" value={`\u00B1${data.demandStdDev}`} />
             </div>
-            <ul className="space-y-2">
-              {data.forecastImpact.map((impact, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-sm text-[#CBD5E1]">
-                  <TrendingUp size={12} className="text-blue-400 mt-1 shrink-0" />
-                  {impact}
-                </li>
-              ))}
-            </ul>
           </Section>
 
           {/* ── Reorder Breach ─────────────────────────────────── */}
@@ -280,7 +270,7 @@ const RiskDrawer = ({ category, onClose }) => {
               </div>
               <div>
                 <p className={`text-sm font-bold ${data.reorderBreach.breached ? 'text-red-300' : 'text-emerald-300'}`}>
-                  {data.reorderBreach.breached ? `Breached ${data.reorderBreach.daysBelow} days ago` : 'No Breach'}
+                  {data.reorderBreach.breached ? 'Below Reorder Point' : 'No Breach'}
                 </p>
                 {data.reorderBreach.breached && data.reorderBreach.deficit > 0 && (
                   <p className="text-xs text-[#94A3B8] mt-0.5">
@@ -292,7 +282,7 @@ const RiskDrawer = ({ category, onClose }) => {
             <p className="text-sm text-[#94A3B8] leading-relaxed">{data.reorderBreach.explanation}</p>
             <div className="flex items-center gap-2 mt-3 text-xs text-[#64748B]">
               <Clock size={12} />
-              <span>Days until stockout: <span className="text-[#E2E8F0] font-bold">{data.daysUntilStockout}</span></span>
+              <span>Days until stockout: <span className="text-[#E2E8F0] font-bold">{data.daysUntilStockout > 900 ? 'N/A' : data.daysUntilStockout}</span></span>
               <span className="mx-1">|</span>
               <Shield size={12} />
               <span>Safety stock: <span className="text-[#E2E8F0] font-bold">{data.safetyStock.toLocaleString()}</span></span>
