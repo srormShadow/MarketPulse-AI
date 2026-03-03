@@ -16,7 +16,7 @@ htmlcov
 tests
 docs
 frontend
-data
+data/db
 scripts
 *.db
 .env
