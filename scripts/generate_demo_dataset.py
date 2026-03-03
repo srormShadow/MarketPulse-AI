@@ -1,23 +1,35 @@
-﻿"""Generate a realistic synthetic retail dataset for one store.
+"""Generate a realistic synthetic retail dataset for one store.
+
+Improvements over v1:
+- 2025 calendar year (aligns closer to 2026 festival seed for forecasting)
+- Autocorrelated demand (AR(1) noise for day-to-day stickiness)
+- Per-weekday demand profiles (not just weekend/weekday binary)
+- Monthly seasonality (summer, monsoon, winter patterns per category)
+- Asymmetric festival curves (slow ramp-up, sharp post-festival drop)
+- Category-specific festival shapes (snacks peak earlier, staples peak later)
+- Random promotional events (occasional 1-3 day spikes unrelated to festivals)
+- Occasional supply disruptions (random demand dips)
+- Year-over-year festival jitter (festivals dont hit identically each time)
 
 Outputs:
 - data/demo_sku_master.csv
 - data/demo_sales_365.csv
-- data/demo_festival_spikes_snacks.png
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 
+# ---------------------------------------------------------------------------
+# SKU Master
+# ---------------------------------------------------------------------------
+
 def build_sku_master() -> pd.DataFrame:
     """Create SKU master data (7 SKUs across 3 categories)."""
-
     skus = [
         {"sku_id": "OIL_1L_SUN", "product_name": "Sunflower Oil 1L", "category": "Edible Oil", "mrp": 180.0, "cost": 145.0, "current_inventory": 420},
         {"sku_id": "OIL_1L_GND", "product_name": "Groundnut Oil 1L", "category": "Edible Oil", "mrp": 210.0, "cost": 168.0, "current_inventory": 390},
@@ -30,171 +42,321 @@ def build_sku_master() -> pd.DataFrame:
     return pd.DataFrame(skus)
 
 
-def category_demand_bounds() -> dict[str, tuple[int, int]]:
-    """Base demand ranges requested for each category."""
+# ---------------------------------------------------------------------------
+# Category-specific base demand
+# ---------------------------------------------------------------------------
 
-    return {
-        "Edible Oil": (80, 120),
-        "Staples": (40, 70),
-        "Snacks": (100, 150),
-    }
-
-
-def festival_calendar_2024() -> dict[str, dict[str, object]]:
-    """Festival configuration with fixed 2024 dates and impact intensity."""
-
-    return {
-        "Pongal": {"date": pd.Timestamp("2024-01-15"), "intensity": "MODERATE"},
-        "Holi": {"date": pd.Timestamp("2024-03-25"), "intensity": "MODERATE"},
-        "Eid": {"date": pd.Timestamp("2024-04-10"), "intensity": "HIGH"},
-        "Independence Day": {"date": pd.Timestamp("2024-08-15"), "intensity": "MINOR"},
-        "Navratri": {"date": pd.Timestamp("2024-10-03"), "intensity": "MODERATE"},
-        "Diwali": {"date": pd.Timestamp("2024-11-01"), "intensity": "VERY_HIGH"},
-        "Christmas": {"date": pd.Timestamp("2024-12-25"), "intensity": "HIGH"},
-        "New Year": {"date": pd.Timestamp("2024-12-31"), "intensity": "MINOR"},
-    }
-
-
-def intensity_base_uplift() -> dict[str, float]:
-    """Base uplift by festival intensity level."""
-
-    return {
-        "VERY_HIGH": 0.45,
-        "HIGH": 0.28,
-        "MODERATE": 0.18,
-        "MINOR": 0.10,
-    }
-
-
-def category_festival_weights() -> dict[str, dict[str, float]]:
-    """Category-specific multiplier for each festival effect."""
-
-    return {
-        "Edible Oil": {
-            "Pongal": 1.00,
-            "Holi": 0.60,
-            "Eid": 1.30,
-            "Independence Day": 0.50,
-            "Navratri": 0.70,
-            "Diwali": 1.35,
-            "Christmas": 0.60,
-            "New Year": 0.50,
-        },
-        "Staples": {
-            "Pongal": 0.95,
-            "Holi": 0.65,
-            "Eid": 1.25,
-            "Independence Day": 0.55,
-            "Navratri": 0.75,
-            "Diwali": 1.20,
-            "Christmas": 0.70,
-            "New Year": 0.55,
-        },
-        "Snacks": {
-            "Pongal": 0.70,
-            "Holi": 0.85,
-            "Eid": 0.80,
-            "Independence Day": 0.45,
-            "Navratri": 0.90,
-            "Diwali": 1.20,
-            "Christmas": 1.10,
-            "New Year": 0.55,
-        },
-    }
+CATEGORY_PROFILES = {
+    "Edible Oil": {
+        "base_range": (85, 125),
+        # Per-weekday multipliers (Mon=0 .. Sun=6)
+        # Oil: steady weekdays, slight weekend bump for cooking
+        "weekday_pattern": [0.96, 0.97, 1.00, 1.01, 1.03, 1.08, 1.05],
+        # Monthly seasonality: winter cooking boost, monsoon dip
+        "monthly_seasonality": [1.08, 1.04, 1.00, 0.96, 0.93, 0.90, 0.88, 0.91, 0.95, 1.02, 1.10, 1.12],
+        "noise_base": 0.07,
+        "ar_coeff": 0.35,       # autocorrelation strength
+        "trend_range": (0.03, 0.06),
+        "promo_freq": 0.02,     # 2% of days get random promos
+        "promo_boost": (0.12, 0.25),
+        "disruption_freq": 0.008,
+        "disruption_dip": (0.15, 0.30),
+    },
+    "Staples": {
+        "base_range": (45, 75),
+        # Staples: month-start spike (salary day buying), mid-week restocking
+        "weekday_pattern": [1.05, 1.02, 0.98, 0.97, 1.00, 1.04, 1.02],
+        # Monsoon/rainy season bump for staples (stocking up)
+        "monthly_seasonality": [1.02, 1.00, 0.97, 0.95, 0.93, 0.96, 1.05, 1.08, 1.04, 1.00, 1.06, 1.10],
+        "noise_base": 0.09,
+        "ar_coeff": 0.40,
+        "trend_range": (0.02, 0.05),
+        "promo_freq": 0.015,
+        "promo_boost": (0.10, 0.20),
+        "disruption_freq": 0.01,
+        "disruption_dip": (0.20, 0.40),
+    },
+    "Snacks": {
+        "base_range": (105, 160),
+        # Snacks: big weekend spike, Friday evening start, Monday dip
+        "weekday_pattern": [0.88, 0.92, 0.95, 0.98, 1.08, 1.22, 1.18],
+        # Summer heat boosts beverages/snacks, winter party season
+        "monthly_seasonality": [0.95, 0.97, 1.02, 1.08, 1.12, 1.06, 0.94, 0.92, 0.96, 1.00, 1.10, 1.15],
+        "noise_base": 0.10,
+        "ar_coeff": 0.30,
+        "trend_range": (0.05, 0.10),
+        "promo_freq": 0.03,
+        "promo_boost": (0.15, 0.35),
+        "disruption_freq": 0.005,
+        "disruption_dip": (0.10, 0.25),
+    },
+}
 
 
-def weekend_factor(category: str, day_of_week: int) -> float:
-    """Return weekly seasonal adjustment by category."""
+# ---------------------------------------------------------------------------
+# 2025 Festival Calendar with category-specific impacts
+# ---------------------------------------------------------------------------
 
-    is_weekend = day_of_week >= 5
-    if category == "Snacks":
-        return 1.15 if is_weekend else 1.0
-    if category == "Edible Oil":
-        return 1.05 if is_weekend else 1.0
-    return 1.01 if is_weekend else 0.99
+FESTIVAL_CALENDAR_2025 = {
+    "Pongal": {
+        "date": pd.Timestamp("2025-01-14"),
+        "impacts": {"Edible Oil": 0.40, "Staples": 0.35, "Snacks": 0.20},
+        "ramp_days": 8, "decay_days": 3,
+    },
+    "Republic Day": {
+        "date": pd.Timestamp("2025-01-26"),
+        "impacts": {"Edible Oil": 0.05, "Staples": 0.08, "Snacks": 0.18},
+        "ramp_days": 3, "decay_days": 1,
+    },
+    "Holi": {
+        "date": pd.Timestamp("2025-03-14"),
+        "impacts": {"Edible Oil": 0.15, "Staples": 0.12, "Snacks": 0.45},
+        "ramp_days": 7, "decay_days": 2,
+    },
+    "Eid ul-Fitr": {
+        "date": pd.Timestamp("2025-03-31"),
+        "impacts": {"Edible Oil": 0.38, "Staples": 0.42, "Snacks": 0.22},
+        "ramp_days": 10, "decay_days": 3,
+    },
+    "Ram Navami": {
+        "date": pd.Timestamp("2025-04-06"),
+        "impacts": {"Edible Oil": 0.12, "Staples": 0.20, "Snacks": 0.10},
+        "ramp_days": 5, "decay_days": 2,
+    },
+    "Independence Day": {
+        "date": pd.Timestamp("2025-08-15"),
+        "impacts": {"Edible Oil": 0.06, "Staples": 0.08, "Snacks": 0.22},
+        "ramp_days": 3, "decay_days": 1,
+    },
+    "Raksha Bandhan": {
+        "date": pd.Timestamp("2025-08-09"),
+        "impacts": {"Edible Oil": 0.10, "Staples": 0.12, "Snacks": 0.35},
+        "ramp_days": 6, "decay_days": 2,
+    },
+    "Janmashtami": {
+        "date": pd.Timestamp("2025-08-16"),
+        "impacts": {"Edible Oil": 0.18, "Staples": 0.15, "Snacks": 0.12},
+        "ramp_days": 5, "decay_days": 2,
+    },
+    "Ganesh Chaturthi": {
+        "date": pd.Timestamp("2025-09-07"),
+        "impacts": {"Edible Oil": 0.15, "Staples": 0.20, "Snacks": 0.38},
+        "ramp_days": 8, "decay_days": 4,
+    },
+    "Navratri Start": {
+        "date": pd.Timestamp("2025-10-02"),
+        "impacts": {"Edible Oil": 0.25, "Staples": 0.30, "Snacks": 0.20},
+        "ramp_days": 10, "decay_days": 2,  # 9-day festival, sustained
+    },
+    "Dussehra": {
+        "date": pd.Timestamp("2025-10-12"),
+        "impacts": {"Edible Oil": 0.18, "Staples": 0.22, "Snacks": 0.30},
+        "ramp_days": 5, "decay_days": 2,
+    },
+    "Dhanteras": {
+        "date": pd.Timestamp("2025-10-29"),
+        "impacts": {"Edible Oil": 0.30, "Staples": 0.25, "Snacks": 0.35},
+        "ramp_days": 5, "decay_days": 1,
+    },
+    "Diwali": {
+        "date": pd.Timestamp("2025-10-31"),
+        "impacts": {"Edible Oil": 0.55, "Staples": 0.45, "Snacks": 0.65},
+        "ramp_days": 14, "decay_days": 4,
+    },
+    "Bhai Dooj": {
+        "date": pd.Timestamp("2025-11-02"),
+        "impacts": {"Edible Oil": 0.08, "Staples": 0.06, "Snacks": 0.25},
+        "ramp_days": 2, "decay_days": 1,
+    },
+    "Christmas": {
+        "date": pd.Timestamp("2025-12-25"),
+        "impacts": {"Edible Oil": 0.12, "Staples": 0.10, "Snacks": 0.30},
+        "ramp_days": 7, "decay_days": 2,
+    },
+    "New Year": {
+        "date": pd.Timestamp("2025-12-31"),
+        "impacts": {"Edible Oil": 0.10, "Staples": 0.08, "Snacks": 0.28},
+        "ramp_days": 4, "decay_days": 1,
+    },
+}
 
 
-def noise_scale(category: str) -> float:
-    """Return Gaussian noise scale by category."""
+# ---------------------------------------------------------------------------
+# Festival uplift curve (asymmetric: gradual ramp, sharp drop)
+# ---------------------------------------------------------------------------
 
-    if category == "Edible Oil":
-        return 0.06
-    return 0.08
+def festival_uplift_on_day(
+    date_value: pd.Timestamp,
+    festival_date: pd.Timestamp,
+    peak_uplift: float,
+    ramp_days: int,
+    decay_days: int,
+    rng: np.random.Generator,
+) -> float:
+    """Asymmetric festival effect with per-instance jitter.
 
-
-def apply_festival_curve(date_value: pd.Timestamp, festival_date: pd.Timestamp, peak_uplift: float) -> float:
-    """Bell-shaped uplift from -10 to +5 days around festival day.
-
-    Returns additive uplift fraction (e.g., 0.18 means +18%).
+    Before festival: gradual ramp using squared cosine (slow start, accelerating)
+    After festival: sharp exponential decay
+    Peak jitter: +/- 10% randomness on each festival instance
     """
+    offset = (date_value - festival_date).days
 
-    offset_days = (date_value - festival_date).days
-    if offset_days < -10 or offset_days > 5:
+    if offset < -ramp_days or offset > decay_days + 2:
         return 0.0
 
-    sigma = 4.2 if offset_days <= 0 else 2.4
-    bell = np.exp(-0.5 * (offset_days / sigma) ** 2)
-    return peak_uplift * float(bell)
+    # Add jitter to peak so festivals aren't identical each time
+    jittered_peak = peak_uplift * rng.uniform(0.88, 1.12)
+
+    if offset <= 0:
+        # Ramp-up: squared cosine for natural acceleration
+        progress = 1.0 - abs(offset) / ramp_days
+        curve = progress ** 1.8  # slightly sub-quadratic
+        return jittered_peak * curve
+    else:
+        # Post-festival: fast exponential decay
+        tau = max(0.8, decay_days / 2.5)
+        return jittered_peak * np.exp(-offset / tau)
 
 
-def total_festival_uplift(category: str, date_value: pd.Timestamp) -> float:
-    """Combine multi-festival effects with a cap to prevent unrealistic spikes."""
+def total_festival_uplift(
+    category: str,
+    date_value: pd.Timestamp,
+    rng: np.random.Generator,
+) -> float:
+    """Combine all festival effects for a given date and category."""
+    uplift = 0.0
+    for _name, details in FESTIVAL_CALENDAR_2025.items():
+        peak = details["impacts"].get(category, 0.0)
+        if peak <= 0:
+            continue
+        uplift += festival_uplift_on_day(
+            date_value,
+            details["date"],
+            peak,
+            details["ramp_days"],
+            details["decay_days"],
+            rng,
+        )
+    return min(uplift, 0.90)
 
-    festivals = festival_calendar_2024()
-    base_levels = intensity_base_uplift()
-    weights = category_festival_weights()[category]
 
-    uplift_sum = 0.0
-    for festival_name, details in festivals.items():
-        intensity = str(details["intensity"])
-        festival_date = pd.Timestamp(details["date"])
-        peak = base_levels[intensity] * weights[festival_name]
-        uplift_sum += apply_festival_curve(date_value, festival_date, peak)
+# ---------------------------------------------------------------------------
+# Month-start salary-day effect (common in Indian retail)
+# ---------------------------------------------------------------------------
 
-    # Cap cumulative uplift to keep overlapping festival effects realistic.
-    return min(uplift_sum, 0.85)
+def salary_day_boost(day_of_month: int, category: str) -> float:
+    """Salary-day effect: demand bumps on 1st-5th and 28th-31st of month."""
+    if category == "Snacks":
+        # Snacks less affected by salary cycles
+        boost_map = {1: 1.04, 2: 1.03, 3: 1.02, 28: 1.02, 29: 1.03, 30: 1.04, 31: 1.03}
+    else:
+        # Staples and oil: strong salary-day stocking
+        boost_map = {1: 1.12, 2: 1.10, 3: 1.06, 4: 1.03, 28: 1.03, 29: 1.05, 30: 1.08, 31: 1.06}
+    return boost_map.get(day_of_month, 1.0)
 
 
-def generate_sales(sku_df: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
-    """Generate daily sales for every SKU over calendar year 2024."""
+# ---------------------------------------------------------------------------
+# Main generation
+# ---------------------------------------------------------------------------
 
+def generate_sales(sku_df: pd.DataFrame, seed: int = 2025) -> pd.DataFrame:
+    """Generate daily sales for every SKU over calendar year 2025.
+
+    Key realism improvements:
+    - AR(1) autocorrelated noise (demand sticks day-to-day)
+    - Per-weekday patterns (not binary weekend/weekday)
+    - Monthly seasonality curves per category
+    - Asymmetric festival curves with jitter
+    - Random promotional events
+    - Occasional supply disruptions
+    - Salary-day effects
+    """
     rng = np.random.default_rng(seed)
-    dates = pd.date_range(start="2024-01-01", end="2024-12-31", freq="D")
-    bounds = category_demand_bounds()
+    dates = pd.date_range(start="2025-01-01", end="2025-12-31", freq="D")
+    n_days = len(dates)
 
     records: list[dict[str, object]] = []
 
     for _, sku in sku_df.iterrows():
         category = str(sku["category"])
-        min_base, max_base = bounds[category]
-        base_demand = rng.uniform(min_base, max_base)
+        profile = CATEGORY_PROFILES[category]
 
-        trend_strength = rng.uniform(0.04, 0.08)
-        noise_sigma = base_demand * noise_scale(category)
+        # Random base demand for this SKU within category range
+        lo, hi = profile["base_range"]
+        base_demand = rng.uniform(lo, hi)
 
-        for day_index, date_value in enumerate(dates):
-            trend_multiplier = 1.0 + trend_strength * (day_index / (len(dates) - 1))
-            weekly_multiplier = weekend_factor(category, date_value.dayofweek)
-            festival_multiplier = 1.0 + total_festival_uplift(category, date_value)
-            noise = rng.normal(0.0, noise_sigma)
+        # Random trend strength
+        trend_lo, trend_hi = profile["trend_range"]
+        trend_strength = rng.uniform(trend_lo, trend_hi)
 
-            demand = base_demand * trend_multiplier * weekly_multiplier * festival_multiplier + noise
+        # Pre-generate AR(1) noise series for this SKU
+        ar_coeff = profile["ar_coeff"]
+        noise_std = base_demand * profile["noise_base"]
+        ar_noise = np.zeros(n_days)
+        ar_noise[0] = rng.normal(0, noise_std)
+        for t in range(1, n_days):
+            ar_noise[t] = ar_coeff * ar_noise[t - 1] + rng.normal(0, noise_std * np.sqrt(1 - ar_coeff ** 2))
+
+        # Pre-generate random promo and disruption days
+        promo_mask = rng.random(n_days) < profile["promo_freq"]
+        disruption_mask = rng.random(n_days) < profile["disruption_freq"]
+
+        for day_idx, date_value in enumerate(dates):
+            # 1) Linear trend
+            trend_mult = 1.0 + trend_strength * (day_idx / (n_days - 1))
+
+            # 2) Per-weekday seasonal pattern
+            weekday_mult = profile["weekday_pattern"][date_value.dayofweek]
+
+            # 3) Monthly seasonality
+            month_mult = profile["monthly_seasonality"][date_value.month - 1]
+
+            # 4) Festival uplift (asymmetric with jitter)
+            festival_mult = 1.0 + total_festival_uplift(category, date_value, rng)
+
+            # 5) Salary-day effect
+            salary_mult = salary_day_boost(date_value.day, category)
+
+            # 6) Random promotional events (1-3 day bursts)
+            promo_mult = 1.0
+            if promo_mask[day_idx]:
+                promo_lo, promo_hi = profile["promo_boost"]
+                promo_mult = 1.0 + rng.uniform(promo_lo, promo_hi)
+
+            # 7) Supply disruptions (demand dips)
+            disruption_mult = 1.0
+            if disruption_mask[day_idx]:
+                dip_lo, dip_hi = profile["disruption_dip"]
+                disruption_mult = 1.0 - rng.uniform(dip_lo, dip_hi)
+
+            # Combine all multiplicative effects
+            demand = (
+                base_demand
+                * trend_mult
+                * weekday_mult
+                * month_mult
+                * festival_mult
+                * salary_mult
+                * promo_mult
+                * disruption_mult
+            )
+
+            # Add autocorrelated noise
+            demand += ar_noise[day_idx]
+
             units_sold = max(0, int(round(demand)))
 
-            records.append(
-                {
-                    "date": date_value.strftime("%Y-%m-%d"),
-                    "sku_id": sku["sku_id"],
-                    "units_sold": units_sold,
-                }
-            )
+            records.append({
+                "date": date_value.strftime("%Y-%m-%d"),
+                "sku_id": sku["sku_id"],
+                "units_sold": units_sold,
+            })
 
     return pd.DataFrame(records)
 
 
 def print_summary(sku_df: pd.DataFrame, sales_df: pd.DataFrame) -> None:
     """Print compact summary statistics for quick sanity checks."""
-
     merged = sales_df.merge(sku_df[["sku_id", "category"]], on="sku_id", how="left")
 
     print("\n=== Dataset Summary ===")
@@ -203,65 +365,37 @@ def print_summary(sku_df: pd.DataFrame, sales_df: pd.DataFrame) -> None:
     print(f"Sales rows: {len(sales_df)}")
     print(f"Date range: {sales_df['date'].min()} to {sales_df['date'].max()}")
 
-    category_stats = merged.groupby("category")["units_sold"].agg(["mean", "min", "max", "sum"]).round(2)
+    category_stats = merged.groupby("category")["units_sold"].agg(["mean", "min", "max", "std", "sum"]).round(2)
     print("\nUnits sold by category:")
     print(category_stats)
 
-
-def plot_category_spike(sku_df: pd.DataFrame, sales_df: pd.DataFrame, output_path: Path, category: str = "Snacks") -> None:
-    """Plot daily category demand to visualize multiple festival spikes."""
-
-    merged = sales_df.merge(sku_df[["sku_id", "category"]], on="sku_id", how="left")
-    merged["date"] = pd.to_datetime(merged["date"])
-
-    category_daily = (
-        merged.loc[merged["category"] == category]
-        .groupby("date", as_index=False)["units_sold"]
-        .sum()
-    )
-
-    festivals = festival_calendar_2024()
-
-    plt.figure(figsize=(13, 5.5))
-    plt.plot(category_daily["date"], category_daily["units_sold"], linewidth=1.8, color="#0b7285", label=f"{category} demand")
-
-    for festival_name, details in festivals.items():
-        fest_date = pd.Timestamp(details["date"])
-        plt.axvline(fest_date, color="#c92a2a", linestyle="--", linewidth=0.9, alpha=0.55)
-        plt.text(fest_date, category_daily["units_sold"].max() * 1.01, festival_name, rotation=90, fontsize=8, va="bottom")
-
-    plt.title(f"{category} Daily Units Sold with 2024 Festival Spikes")
-    plt.xlabel("Date")
-    plt.ylabel("Units Sold")
-    plt.ylim(bottom=0)
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=140)
-    plt.close()
+    # Show coefficient of variation (realism indicator)
+    print("\nCoefficient of variation by category (higher = more realistic variability):")
+    for cat in sorted(merged["category"].unique()):
+        cat_data = merged.loc[merged["category"] == cat, "units_sold"]
+        cv = cat_data.std() / cat_data.mean() * 100
+        print(f"  {cat}: {cv:.1f}%")
 
 
 def main() -> None:
-    """Generate demo CSV files and a multi-festival spike plot."""
-
+    """Generate demo CSV files."""
     data_dir = Path("data")
     data_dir.mkdir(parents=True, exist_ok=True)
 
     sku_master = build_sku_master()
-    sales = generate_sales(sku_master, seed=42)
+    sales = generate_sales(sku_master, seed=2025)
 
     sku_path = data_dir / "demo_sku_master.csv"
     sales_path = data_dir / "demo_sales_365.csv"
-    plot_path = data_dir / "demo_festival_spikes_snacks.png"
 
     sku_master.to_csv(sku_path, index=False)
     sales.to_csv(sales_path, index=False)
 
     print_summary(sku_master, sales)
-    plot_category_spike(sku_master, sales, plot_path, category="Snacks")
 
     print("\nSaved files:")
     print(f"- {sku_path}")
     print(f"- {sales_path}")
-    print(f"- {plot_path}")
 
 
 if __name__ == "__main__":

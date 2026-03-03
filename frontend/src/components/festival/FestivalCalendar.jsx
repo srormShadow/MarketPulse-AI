@@ -451,7 +451,10 @@ export default function FestivalCalendar({
                   <div className="space-y-2 border-t border-white/5 px-4 py-3">
                     <p className="mb-1 text-[10px] uppercase tracking-wider text-[#64748B]">Expected Demand Impact</p>
                     {cats.map((cat) => {
-                      const pct = Math.round((multiplier - 1) * 100);
+                      const catUplift = f.category_uplifts?.[cat];
+                      const pct = Math.round(
+                        catUplift != null ? catUplift * 100 : (multiplier - 1) * 100,
+                      );
                       const barWidth = Math.min(100, pct * 2);
                       return (
                         <div key={cat} className="flex items-center gap-2">

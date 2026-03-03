@@ -6,10 +6,7 @@ import {
 import GlassCard from '../components/ui/GlassCard';
 import FestivalCalendar from '../components/festival/FestivalCalendar';
 import { apiClient } from '../api/client';
-
-const CATEGORIES = ['Snacks', 'Staples', 'Edible Oil'];
-const INVENTORY = { Snacks: 2800, Staples: 5100, 'Edible Oil': 1900 };
-const LEAD_TIMES = { Snacks: 5, Staples: 7, 'Edible Oil': 10 };
+import { useInventory } from '../context/InventoryContext';
 
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const daysUntil = (dateValue) => {
@@ -29,6 +26,7 @@ const readinessStyle = (status) => {
 };
 
 const FestivalIntelligence = () => {
+  const { categories: CATEGORIES, inventory: INVENTORY, leadTimes: LEAD_TIMES } = useInventory();
   const [festivals, setFestivals] = useState([]);
   const [forecastRows, setForecastRows] = useState([]);
   const [diagnosticsAll, setDiagnosticsAll] = useState(null);
@@ -112,7 +110,8 @@ const FestivalIntelligence = () => {
         const reorderPoint = Number(decision?.reorder_point || 0);
         const safetyStock = Number(decision?.safety_stock || 0);
         const baseRequired = Math.max(reorderPoint, safetyStock);
-        const requiredStock = Math.round(baseRequired * (1 + Number(festival.historical_uplift || 0)));
+        const catUplift = festival.category_uplifts?.[category] ?? festival.historical_uplift ?? 0;
+        const requiredStock = Math.round(baseRequired * (1 + Number(catUplift)));
         const gap = Math.max(0, requiredStock - currentStock);
         const gapRatio = requiredStock > 0 ? gap / requiredStock : 0;
         rows.push({
@@ -222,10 +221,13 @@ const FestivalIntelligence = () => {
               <Tooltip
                 formatter={(value) => [Number(value).toFixed(3), 'festival_score coef']}
                 contentStyle={{ backgroundColor: '#1E293B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#E2E8F0', fontSize: 12 }}
+                itemStyle={{ color: '#F1F5F9' }}
+                labelStyle={{ color: '#F1F5F9' }}
+                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
               />
               <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={36}>
                 {sensitivityData.map((row, idx) => (
-                  <Cell key={`${row.category}-${idx}`} fill={row.value >= 0.2 ? '#EF4444' : row.value >= 0.14 ? '#F59E0B' : '#10B981'} />
+                  <Cell key={`${row.category}-${idx}`} fill={row.value >= 1.0 ? '#EF4444' : row.value >= 0.5 ? '#F59E0B' : '#10B981'} />
                 ))}
               </Bar>
             </BarChart>

@@ -247,14 +247,37 @@ class DynamoRepository:
                 })
 
     def seed_festivals(self, festivals: list[dict]) -> None:
-        table = self._table("marketpulse_festivals")
-        with table.batch_writer() as batch:
-            for f in festivals:
-                batch.put_item(Item={
+        # Merge per-category rows into one DynamoDB item per (festival_name, date)
+        # because the table key is (festival_name HASH, date RANGE).
+        merged: dict[tuple[str, str], dict] = {}
+        for f in festivals:
+            key = (f["festival_name"], str(f["date"]))
+            if key not in merged:
+                merged[key] = {
                     "festival_name": f["festival_name"],
                     "date": str(f["date"]),
-                    "category": f["category"],
-                    "historical_uplift": _to_decimal(f["historical_uplift"]),
+                    "categories": [],
+                    "category_uplifts": {},
+                    "historical_uplift": 0.0,
+                }
+            entry = merged[key]
+            cat = f["category"]
+            uplift = float(f["historical_uplift"])
+            if cat not in entry["category_uplifts"]:
+                entry["categories"].append(cat)
+            entry["category_uplifts"][cat] = uplift
+            entry["historical_uplift"] = max(entry["historical_uplift"], uplift)
+
+        table = self._table("marketpulse_festivals")
+        with table.batch_writer() as batch:
+            for item in merged.values():
+                batch.put_item(Item={
+                    "festival_name": item["festival_name"],
+                    "date": item["date"],
+                    "category": ",".join(item["categories"]),
+                    "categories": item["categories"],
+                    "category_uplifts": {k: _to_decimal(v) for k, v in item["category_uplifts"].items()},
+                    "historical_uplift": _to_decimal(item["historical_uplift"]),
                 })
 
     def get_all_festival_dates(self) -> list[tuple[str, Any]]:
@@ -267,15 +290,28 @@ class DynamoRepository:
     def list_all_festivals(self) -> list[dict]:
         items = self._scan_all("marketpulse_festivals")
         items.sort(key=lambda x: x.get("date", ""))
-        return [
-            {
-                "festival_name": it["festival_name"],
-                "date": date_type.fromisoformat(it["date"]),
-                "category": it["category"],
-                "historical_uplift": float(it["historical_uplift"]),
-            }
-            for it in items
-        ]
+        rows: list[dict] = []
+        for it in items:
+            cat_uplifts = it.get("category_uplifts")
+            if cat_uplifts and isinstance(cat_uplifts, dict):
+                # New format: one DynamoDB item with per-category uplift map.
+                # Expand into one row per category for the route grouping logic.
+                for cat, uplift in cat_uplifts.items():
+                    rows.append({
+                        "festival_name": it["festival_name"],
+                        "date": date_type.fromisoformat(it["date"]),
+                        "category": cat,
+                        "historical_uplift": float(uplift),
+                    })
+            else:
+                # Legacy format: comma-separated category, single uplift.
+                rows.append({
+                    "festival_name": it["festival_name"],
+                    "date": date_type.fromisoformat(it["date"]),
+                    "category": it.get("category", ""),
+                    "historical_uplift": float(it.get("historical_uplift", 0)),
+                })
+        return rows
 
     # ------------------------------------------------------------------
     # Insights / Recommendations
