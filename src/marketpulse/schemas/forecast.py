@@ -56,7 +56,7 @@ class ForecastResponse(BaseModel):
 
 
 class BatchForecastRequest(BaseModel):
-    categories: list[str] = Field(min_length=1, description="Categories to forecast")
+    categories: list[str] = Field(min_length=1, max_length=20, description="Categories to forecast")
     n_days: int = Field(gt=0, le=365, description="Forecast horizon")
     inventory: dict[str, int] = Field(default_factory=dict, description="Category -> current inventory")
     lead_times: dict[str, int] = Field(default_factory=dict, description="Category -> lead time days")

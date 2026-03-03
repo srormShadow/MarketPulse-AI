@@ -36,7 +36,7 @@ class BatchInsightItem(BaseModel):
 
 
 class BatchInsightRequest(BaseModel):
-    items: list[BatchInsightItem] = Field(default_factory=list)
+    items: list[BatchInsightItem] = Field(default_factory=list, max_length=20)
 
 
 class BatchInsightResponse(BaseModel):

@@ -55,10 +55,19 @@ class CsvIngestionError(Exception):
         self.validation_errors = validation_errors or []
 
 
-async def ingest_csv(file: UploadFile, repo: DataRepository) -> tuple[str, int, dict[str, object]]:
+async def ingest_csv(
+    file: UploadFile,
+    repo: DataRepository,
+    max_bytes: int = 10 * 1024 * 1024,
+) -> tuple[str, int, dict[str, object]]:
     """Ingest a CSV upload as SKU master or Sales data."""
 
-    csv_bytes = await file.read()
+    csv_bytes = await file.read(max_bytes + 1)
+    if len(csv_bytes) > max_bytes:
+        raise CsvIngestionError(
+            f"File exceeds maximum size of {max_bytes // (1024 * 1024)}MB",
+            validation_errors=[{"field": "file", "issue": f"File exceeds maximum size of {max_bytes // (1024 * 1024)}MB"}],
+        )
     if not csv_bytes:
         raise CsvIngestionError(
             "Uploaded file is empty",

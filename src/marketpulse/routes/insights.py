@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
+from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
 from marketpulse.schemas.insights import (
     BatchInsightRequest,
@@ -22,6 +26,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["insights"])
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _risk_score(decision_data: dict) -> float:
@@ -41,16 +47,39 @@ def _resolve_festival_context(repo: "DataRepository", supplied_context):
         return []
 
 
+def _is_bedrock_cacheable_insight(insight: str) -> bool:
+    """Reject forecast-decision JSON blobs when serving AI insight cache."""
+    text = (insight or "").strip()
+    if not text:
+        return False
+    if not text.startswith("{"):
+        return True
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return True
+    if not isinstance(payload, dict):
+        return True
+    if payload.get("type") == "forecast_decision":
+        return False
+    if "decision" in payload and "recommended_action" in str(payload.get("decision", {})):
+        return False
+    return True
+
+
 @router.post("/insights/batch", response_model=BatchInsightResponse)
+@limiter.limit("5/minute")
 async def generate_batch_insights(
-    request: BatchInsightRequest,
+    request: Request,
+    body: BatchInsightRequest,
     repo: "DataRepository" = Depends(get_repo),
+    _api_key: str = Depends(verify_api_key),
 ) -> BatchInsightResponse:
     """Generate Bedrock insights for multiple categories in one request."""
     now = datetime.now(timezone.utc)
     results: list[InsightResponse] = []
 
-    for item in request.items:
+    for item in body.items:
         risk = _risk_score(item.decision_data)
         try:
             cached = repo.get_cached_recommendation(
@@ -61,7 +90,7 @@ async def generate_batch_insights(
         except Exception:
             logger.exception("Failed cache lookup for category=%s", item.category)
             cached = None
-        if cached and cached.get("insight"):
+        if cached and cached.get("insight") and _is_bedrock_cacheable_insight(str(cached["insight"])):
             results.append(
                 InsightResponse(
                     category=item.category,
@@ -103,13 +132,16 @@ async def generate_batch_insights(
 
 
 @router.post("/insights/{category}", response_model=InsightResponse)
+@limiter.limit("10/minute")
 async def generate_insight_for_category(
+    request: Request,
     category: str,
-    request: InsightRequest,
+    body: InsightRequest,
     repo: "DataRepository" = Depends(get_repo),
+    _api_key: str = Depends(verify_api_key),
 ) -> InsightResponse:
     """Generate one Bedrock insight for a category with cache-aware behavior."""
-    risk = _risk_score(request.decision_data)
+    risk = _risk_score(body.decision_data)
     try:
         cached = repo.get_cached_recommendation(
             category=category,
@@ -119,18 +151,18 @@ async def generate_insight_for_category(
     except Exception:
         logger.exception("Failed cache lookup for category=%s", category)
         cached = None
-    if cached and cached.get("insight"):
+    if cached and cached.get("insight") and _is_bedrock_cacheable_insight(str(cached["insight"])):
         return InsightResponse(
             category=category,
             insight=str(cached["insight"]),
             generated_at=str(cached.get("generated_at", datetime.now(timezone.utc).isoformat())),
         )
 
-    festival_context = _resolve_festival_context(repo, request.festival_context)
+    festival_context = _resolve_festival_context(repo, body.festival_context)
     insight = generate_category_insight(
         category=category,
-        forecast_data=request.forecast_data,
-        decision_data=request.decision_data,
+        forecast_data=body.forecast_data,
+        decision_data=body.decision_data,
         festival_context=festival_context,
     )
     generated_at = datetime.now(timezone.utc)

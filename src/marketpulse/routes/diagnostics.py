@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
 from marketpulse.services.model_diagnostics import analyze_category_model
 
@@ -32,8 +33,9 @@ def _discover_categories(repo: "DataRepository") -> list[str]:
 
 @router.get("/diagnostics/all")
 def all_diagnostics(
-    categories: str | None = Query(default=None, description="Comma-separated categories"),
+    categories: str | None = Query(default=None, description="Comma-separated categories", max_length=500),
     repo: "DataRepository" = Depends(get_repo),
+    _api_key: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     """Return diagnostics for all discovered categories."""
     target_categories = (
@@ -70,12 +72,14 @@ def all_diagnostics(
 def category_diagnostics(
     category: str,
     repo: "DataRepository" = Depends(get_repo),
+    _api_key: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     """Return model coefficients and feature influence for one category."""
     try:
         result = analyze_category_model(repo, category)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        logger.warning("Diagnostics not found for category=%s: %s", category, str(exc))
+        raise HTTPException(status_code=404, detail="Category not found or insufficient data for diagnostics.") from exc
     except Exception as exc:
         logger.exception("Diagnostics failed for category=%s", category)
         raise HTTPException(status_code=500, detail="Diagnostics failed") from exc
