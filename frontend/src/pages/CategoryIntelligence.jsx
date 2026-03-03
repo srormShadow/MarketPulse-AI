@@ -9,10 +9,7 @@ import {
 } from 'recharts';
 import GlassCard from '../components/ui/GlassCard';
 import { apiClient } from '../api/client';
-
-const CATEGORIES = ['Snacks', 'Staples', 'Edible Oil'];
-const INVENTORY = { Snacks: 2800, Staples: 5100, 'Edible Oil': 1900 };
-const LEAD_TIMES = { Snacks: 5, Staples: 7, 'Edible Oil': 10 };
+import { useInventory } from '../context/InventoryContext';
 
 const ACTION_STYLES = {
   URGENT_ORDER: 'bg-red-500/15 text-red-300 border-red-500/30',
@@ -20,6 +17,14 @@ const ACTION_STYLES = {
   MONITOR: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
   MAINTAIN: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   INSUFFICIENT_DATA: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
+};
+
+const FEATURE_LABELS = {
+  lag_1: 'Yesterday\u2019s Sales',
+  lag_7: 'Same Day Last Week',
+  festival_score: 'Festival Impact',
+  rolling_mean_7: '7-Day Avg Demand',
+  weekday: 'Day of Week',
 };
 
 const DEFAULT_FEATURES = [
@@ -54,6 +59,7 @@ const toSafeIso = (v) => {
 };
 
 const CategoryIntelligence = () => {
+  const { categories: CATEGORIES, inventory: INVENTORY, leadTimes: LEAD_TIMES } = useInventory();
   const [selectedCategory, setSelectedCategory] = useState('Snacks');
   const [forecastResponse, setForecastResponse] = useState(null);
   const [festivals, setFestivals] = useState([]);
@@ -190,7 +196,7 @@ const CategoryIntelligence = () => {
 
   const featureChartData = useMemo(() => {
     return featureInfluence.map((f) => ({
-      feature: f.key,
+      feature: FEATURE_LABELS[f.key] || f.key,
       influence: Math.abs(Number(f.value || 0)),
       raw: Number(f.value || 0),
     }));
@@ -298,7 +304,7 @@ const CategoryIntelligence = () => {
                 tickLine={false}
                 width={45}
               />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', fill: 'none' }} />
 
               <Area type="monotone" dataKey="upper_95" stroke="none" fill="url(#confidenceBand)" fillOpacity={1} name="Upper 95%" dot={false} />
               <Area type="monotone" dataKey="lower_95" stroke="rgba(139,92,246,0.25)" strokeWidth={1} strokeDasharray="4 4" fill="#0B1220" fillOpacity={1} name="Lower 95%" dot={false} />
@@ -357,12 +363,19 @@ const CategoryIntelligence = () => {
               <XAxis type="number" tick={{ fill: '#94A3B8', fontSize: 12 }} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} tickLine={false} />
               <YAxis dataKey="feature" type="category" tick={{ fill: '#E2E8F0', fontSize: 12 }} axisLine={false} tickLine={false} width={75} />
               <Tooltip
-                formatter={(value, _name, item) => [Number(value).toFixed(3), `| coefficient ${Number(item?.payload?.raw || 0).toFixed(3)}`]}
+                formatter={(value) => {
+                  const v = Number(value);
+                  const strength = v >= 12 ? 'Very high influence' : v >= 5 ? 'Moderate influence' : 'Low influence';
+                  return [strength, null];
+                }}
                 contentStyle={{ backgroundColor: '#1E293B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#E2E8F0', fontSize: 12 }}
+                itemStyle={{ color: '#F1F5F9' }}
+                labelStyle={{ color: '#F1F5F9' }}
+                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
               />
               <Bar dataKey="influence" radius={[0, 6, 6, 0]} barSize={18}>
                 {featureChartData.map((entry, idx) => (
-                  <Cell key={idx} fill={entry.raw >= 0 ? '#22C55E' : '#EF4444'} />
+                  <Cell key={idx} fill={entry.influence >= 12 ? '#EF4444' : entry.influence >= 5 ? '#F59E0B' : '#10B981'} />
                 ))}
               </Bar>
             </BarChart>
@@ -417,7 +430,7 @@ const CategoryIntelligence = () => {
             {decision?.recommended_action || 'INSUFFICIENT_DATA'}
           </span>
           <span className="ml-3 text-xs" style={{ color: riskColor(Number(decision?.risk_score || 0)) }}>
-            Risk score: {Math.round(Number(decision?.risk_score || 0) * 100)}/100
+            Risk score: {Math.round(Number(decision?.risk_score || 0) * 100)}%
           </span>
         </div>
       </GlassCard>

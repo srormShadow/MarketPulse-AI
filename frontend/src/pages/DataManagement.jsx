@@ -5,10 +5,7 @@ import {
 } from 'lucide-react';
 import GlassCard from '../components/ui/GlassCard';
 import { apiClient } from '../api/client';
-
-const CATEGORIES = ['Snacks', 'Staples', 'Edible Oil'];
-const DEFAULT_INVENTORY = { Snacks: 2800, Staples: 5100, 'Edible Oil': 1900 };
-const DEFAULT_LEAD_TIMES = { Snacks: 5, Staples: 7, 'Edible Oil': 10 };
+import { useInventory } from '../context/InventoryContext';
 
 const freshnessTone = (stale) => (stale ? 'text-red-300' : 'text-emerald-300');
 
@@ -75,10 +72,11 @@ const parseCsvSummary = async (file) => {
 };
 
 const DataManagement = () => {
+  const { categories: CATEGORIES, inventory, setInventory, leadTimes: DEFAULT_LEAD_TIMES } = useInventory();
   const [isDragOver, setIsDragOver] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [inventoryValues, setInventoryValues] = useState(DEFAULT_INVENTORY);
-  const [inventoryDraft, setInventoryDraft] = useState(DEFAULT_INVENTORY);
+  const [inventoryValues, setInventoryValues] = useState(inventory);
+  const [inventoryDraft, setInventoryDraft] = useState(inventory);
   const [isApplying, setIsApplying] = useState(false);
   const [applyMessage, setApplyMessage] = useState('');
   const [applyError, setApplyError] = useState('');
@@ -140,7 +138,7 @@ const DataManagement = () => {
         id: `${row.category}-${idx}`,
         date: new Date().toISOString(),
         category: row.category,
-        action: row?.decision?.recommended_action || 'n/a',
+        action: row?.decision?.recommended_action || 'MAINTAIN',
         order_quantity: Number(row?.decision?.order_quantity || 0),
         risk_score: Number(row?.decision?.risk_score || 0),
       }));
@@ -197,6 +195,7 @@ const DataManagement = () => {
     setApplyMessage('');
     try {
       setInventoryValues(normalized);
+      setInventory(normalized);
       await loadOperationalData(normalized);
       setApplyMessage('Changes applied successfully.');
     } catch {
@@ -460,9 +459,9 @@ const DataManagement = () => {
                 <tr key={`${row.category}-${row.date}-${idx}`} className="border-b border-white/5">
                   <td className="py-3 pr-6 text-[#CBD5E1]">{new Date(row.date || row.generated_at || Date.now()).toLocaleString('en-IN')}</td>
                   <td className="py-3 pr-6 text-[#F1F5F9]">{row.category}</td>
-                  <td className="py-3 pr-6 text-[#CBD5E1]">{row.action || row.recommended_action || 'n/a'}</td>
+                  <td className="py-3 pr-6 text-[#CBD5E1]">{(row.action && row.action !== 'n/a' ? row.action : null) || (row.recommended_action && row.recommended_action !== 'n/a' ? row.recommended_action : null) || 'MAINTAIN'}</td>
                   <td className="py-3 pr-6 text-right font-mono text-[#CBD5E1]">{Number(row.order_quantity || 0).toLocaleString()}</td>
-                  <td className="py-3 text-right font-mono text-[#CBD5E1]">{Number(row.risk_score || 0).toFixed(2)}</td>
+                  <td className="py-3 text-right font-mono text-[#CBD5E1]">{Math.round(Number(row.risk_score || 0) * 100)}%</td>
                 </tr>
               ))}
               {!recommendations.length && (
