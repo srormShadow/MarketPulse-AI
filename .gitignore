@@ -200,6 +200,18 @@ cython_debug/
 
 # ── MarketPulse AI Project ──────────────────────────
 
+# Claude Code session data (may contain pre-signed URLs / temp credentials)
+.claude/
+
+# Infrastructure configs with AWS account IDs
+ecs-task-definition.json
+ecs-permissions-policy.json
+tmp-taskdef-register.json
+amplify-rewrites.json
+
+# Deployment artifacts
+*.zip
+
 # Database files
 *.db
 data/db/
@@ -212,6 +224,7 @@ frontend/node_modules/
 .env
 .env.local
 .env.production
+frontend/.env.production
 .env.*
 !.env.example
 !frontend/.env.example

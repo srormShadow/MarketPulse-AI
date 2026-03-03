@@ -6,9 +6,12 @@ from datetime import datetime, timedelta, timezone
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, Request, status
 from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
+from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
 
 if TYPE_CHECKING:
@@ -26,6 +29,9 @@ from marketpulse.services.forecasting import forecast_next_n_days, validate_fore
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["forecast"])
+
+limiter = Limiter(key_func=get_remote_address)
+
 
 def _serialize_forecast_response_payload(
     category: str,
@@ -218,29 +224,32 @@ def _log_decision_event(repo: "DataRepository", payload: dict) -> None:
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": ForecastErrorResponse},
     },
 )
+@limiter.limit("10/minute")
 async def create_batch_forecast(
-    request: BatchForecastRequest,
+    request: Request,
+    body: BatchForecastRequest,
     repo: "DataRepository" = Depends(get_repo),
+    _api_key: str = Depends(verify_api_key),
 ) -> list[ForecastResponse] | JSONResponse:
     """Generate demand forecasts for multiple categories in one request."""
     responses: list[ForecastResponse] = []
 
-    for category in request.categories:
+    for category in body.categories:
         skus = repo.get_skus_for_category(category)
         if not skus:
             logger.warning("Batch forecast skipped unknown category=%s", category)
             continue
 
-        current_inventory = int(request.inventory.get(category, 0))
-        lead_time_days = int(request.lead_times.get(category, 7))
-        supplier_pack_size = int(request.supplier_pack_sizes.get(category, 1))
-        last_upload_date = request.last_upload_dates.get(category)
+        current_inventory = int(body.inventory.get(category, 0))
+        lead_time_days = int(body.lead_times.get(category, 7))
+        supplier_pack_size = int(body.supplier_pack_sizes.get(category, 1))
+        last_upload_date = body.last_upload_dates.get(category)
 
         try:
             payload, cache_hit, data_stale = _compute_or_fetch_forecast_payload(
                 repo=repo,
                 category=category,
-                n_days=request.n_days,
+                n_days=body.n_days,
                 current_inventory=current_inventory,
                 lead_time_days=lead_time_days,
                 supplier_pack_size=supplier_pack_size,
@@ -277,10 +286,13 @@ async def create_batch_forecast(
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": ForecastErrorResponse},
     },
 )
+@limiter.limit("20/minute")
 async def create_forecast(
-    category: str = Path(..., description="Product category to forecast"),
-    request: ForecastRequest = ...,
+    request: Request,
+    category: str = Path(..., description="Product category to forecast", max_length=100),
+    body: ForecastRequest = ...,
     repo: "DataRepository" = Depends(get_repo),
+    _api_key: str = Depends(verify_api_key),
 ) -> ForecastResponse | JSONResponse:
     """Generate demand forecast and inventory decision for a product category.
 
@@ -315,11 +327,11 @@ async def create_forecast(
         payload, cache_hit, data_stale = _compute_or_fetch_forecast_payload(
             repo=repo,
             category=category,
-            n_days=request.n_days,
-            current_inventory=request.current_inventory,
-            lead_time_days=request.lead_time_days,
-            supplier_pack_size=request.supplier_pack_size,
-            last_upload_date=request.last_upload_date,
+            n_days=body.n_days,
+            current_inventory=body.current_inventory,
+            lead_time_days=body.lead_time_days,
+            supplier_pack_size=body.supplier_pack_size,
+            last_upload_date=body.last_upload_date,
         )
     except ValueError as exc:
         logger.warning("Forecast validation error for category %s: %s", category, str(exc))
@@ -327,7 +339,7 @@ async def create_forecast(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={
                 "status": "error",
-                "message": str(exc),
+                "message": "Invalid forecast parameters. Please check your inputs.",
             },
         )
     except Exception:
@@ -343,7 +355,7 @@ async def create_forecast(
     logger.info(
         "Forecast served | category=%s | n_days=%d | cache_hit=%s",
         category,
-        request.n_days,
+        body.n_days,
         cache_hit,
     )
     try:

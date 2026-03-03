@@ -23,11 +23,18 @@ class Settings(BaseSettings):
     s3_endpoint_url: str | None = None
     bedrock_endpoint_url: str | None = None
     mock_bedrock: bool = False
+    bedrock_model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    bedrock_inference_profile_id: str | None = None
     s3_data_bucket: str = "marketpulse-data"
     s3_model_bucket: str = "marketpulse-models"
 
     # CORS — comma-separated allowed origins (empty = dev defaults only)
     frontend_url: str = ""
+
+    # Security
+    api_key: str = ""
+    environment: str = "development"
+    upload_max_size_mb: int = 10
 
     log_level: str = "INFO"
     log_format: str = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"

@@ -31,7 +31,7 @@ def seed_demo(repo: "DataRepository" = Depends(get_repo)) -> JSONResponse:
             content={
                 "status": "error",
                 "message": (
-                    "Demo CSV files not found. Run: python scripts/generate_demo_dataset.py"
+                    "Demo CSV files not found. Please generate demo data first."
                 ),
             },
         )
@@ -72,4 +72,23 @@ def seed_demo(repo: "DataRepository" = Depends(get_repo)) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"status": "error", "message": "Demo seed failed"},
+        )
+
+
+@router.post("/reseed_festivals")
+def reseed_festivals_endpoint(repo: "DataRepository" = Depends(get_repo)) -> JSONResponse:
+    """Clear and reseed festival data with per-category uplift values."""
+    from marketpulse.services.festival_seed import reseed_festivals
+
+    try:
+        count = reseed_festivals(repo)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "success", "festivals_inserted": count},
+        )
+    except Exception:
+        logger.exception("Festival reseed failed")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"status": "error", "message": "Festival reseed failed"},
         )

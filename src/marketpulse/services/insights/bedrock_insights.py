@@ -22,8 +22,6 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in lean test envs
 from marketpulse.core.config import get_settings
 
 logger = logging.getLogger(__name__)
-
-MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 ANTHROPIC_VERSION = "bedrock-2023-05-31"
 
 
@@ -43,11 +41,21 @@ def _bedrock_client():
     return boto3.client("bedrock-runtime", **kwargs)
 
 
+def _sanitize_for_prompt(value: str) -> str:
+    """Strip characters that could be used for prompt injection."""
+    blocked = ["<system>", "</system>", "<|", "|>", "\\n\\nHuman:", "\\n\\nAssistant:"]
+    result = value
+    for pattern in blocked:
+        result = result.replace(pattern, "")
+    return result
+
+
 def _compact(value: Any) -> str:
     try:
-        return json.dumps(value, default=str, ensure_ascii=True)[:4000]
+        raw = json.dumps(value, default=str, ensure_ascii=True)[:4000]
     except Exception:
-        return str(value)[:4000]
+        raw = str(value)[:4000]
+    return _sanitize_for_prompt(raw)
 
 
 def _fallback_message(category: str, decision_data: Any) -> str:
@@ -94,6 +102,7 @@ Decision Data: {_compact(decision_data)}
 Festival Context: {_compact(festival_context)}
 """
 
+    model_id = settings.bedrock_inference_profile_id or settings.bedrock_model_id
     payload = {
         "anthropic_version": ANTHROPIC_VERSION,
         "max_tokens": 220,
@@ -108,7 +117,7 @@ Festival Context: {_compact(festival_context)}
 
     try:
         response = _bedrock_client().invoke_model(
-            modelId=MODEL_ID,
+            modelId=model_id,
             contentType="application/json",
             accept="application/json",
             body=json.dumps(payload),
