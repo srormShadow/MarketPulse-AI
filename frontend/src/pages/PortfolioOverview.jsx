@@ -12,10 +12,7 @@ import StatCard from '../components/ui/StatCard';
 import RiskDrawer from '../components/ui/RiskDrawer';
 import FestivalCalendar from '../components/festival/FestivalCalendar';
 import { apiClient } from '../api/client';
-
-const DEFAULT_CATEGORIES = ['Snacks', 'Staples', 'Edible Oil'];
-const DEFAULT_INVENTORY = { Snacks: 2800, Staples: 5100, 'Edible Oil': 1900 };
-const DEFAULT_LEAD_TIMES = { Snacks: 5, Staples: 7, 'Edible Oil': 10 };
+import { useInventory } from '../context/InventoryContext';
 
 const tooltipStyle = {
   backgroundColor: '#1E293B',
@@ -27,7 +24,7 @@ const tooltipStyle = {
 
 const riskColor = (score01) => {
   const score = Math.max(0, Math.min(100, (score01 || 0) * 100));
-  return score >= 70 ? '#EF4444' : score >= 50 ? '#F59E0B' : '#10B981';
+  return score >= 60 ? '#EF4444' : score >= 25 ? '#F59E0B' : '#10B981';
 };
 
 const actionStyleMap = {
@@ -63,7 +60,8 @@ const ActionBadge = ({ action }) => (
 );
 
 const PortfolioOverview = () => {
-  const [drawerCategory, setDrawerCategory] = useState(null);
+  const { categories, inventory, leadTimes } = useInventory();
+  const [drawerRow, setDrawerRow] = useState(null);
   const [forecastRows, setForecastRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -76,10 +74,10 @@ const PortfolioOverview = () => {
       setError('');
       try {
         const batchRes = await apiClient.post('/forecast/batch', {
-          categories: DEFAULT_CATEGORIES,
+          categories,
           n_days: 60,
-          inventory: DEFAULT_INVENTORY,
-          lead_times: DEFAULT_LEAD_TIMES,
+          inventory,
+          lead_times: leadTimes,
         });
 
         if (cancelled) return;
@@ -97,7 +95,7 @@ const PortfolioOverview = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [inventory]);
 
   const derived = useMemo(() => {
     const rows = forecastRows.map((row) => {
@@ -111,8 +109,8 @@ const PortfolioOverview = () => {
       const pctChange = previous30 > 0 ? ((forecast30 - previous30) / previous30) * 100 : 0;
       const reorderPoint = Number(decision?.reorder_point || 0);
       const safetyStock = Number(decision?.safety_stock || 0);
-      const currentStock = Number(DEFAULT_INVENTORY[category] || 0);
-      const leadTime = Number(DEFAULT_LEAD_TIMES[category] || 0);
+      const currentStock = Number(inventory[category] || 0);
+      const leadTime = Number(leadTimes[category] || 0);
       const requiredStock = Math.max(reorderPoint, safetyStock);
       const gapRatio = requiredStock > 0 ? Math.max(0, (requiredStock - currentStock) / requiredStock) : 0;
 
@@ -164,7 +162,7 @@ const PortfolioOverview = () => {
         severity: urgentRows.length > 0 ? 'urgent' : (orderRows.length > 0 ? 'order' : 'ok'),
       },
     };
-  }, [forecastRows]);
+  }, [forecastRows, inventory, leadTimes]);
 
   const riskDistributionData = useMemo(() => {
     return derived.rows.map((r) => ({
@@ -280,15 +278,11 @@ const PortfolioOverview = () => {
             </thead>
             <tbody>
               {derived.rows.map((row) => {
-                const clickable = row.riskScore > 0.6 || row.action === 'URGENT_ORDER';
                 return (
                   <tr
                     key={row.category}
-                    onClick={clickable ? () => setDrawerCategory(row.category) : undefined}
-                    className={`
-                      border-b border-white/5 transition-colors
-                      ${clickable ? 'cursor-pointer hover:bg-white/[0.04] group' : 'hover:bg-white/[0.02]'}
-                    `}
+                    onClick={() => setDrawerRow(row)}
+                    className="border-b border-white/5 transition-colors cursor-pointer hover:bg-white/[0.04] group"
                   >
                     <td className="py-4 pr-6 font-semibold text-[#F1F5F9]">{row.category}</td>
                     <td className="py-4 pr-6">
@@ -309,14 +303,12 @@ const PortfolioOverview = () => {
                           />
                         </div>
                         <span className="font-mono text-xs font-bold w-8 text-right" style={{ color: riskColor(row.riskScore) }}>
-                          {Math.round(row.riskScore * 100)}
+                          {Math.round(row.riskScore * 100)}%
                         </span>
                       </div>
                     </td>
                     <td className="py-4 pl-2 w-8">
-                      {clickable && (
-                        <ChevronRight size={14} className="text-[#475569] group-hover:text-[#94A3B8] transition-colors" />
-                      )}
+                      <ChevronRight size={14} className="text-[#475569] group-hover:text-[#94A3B8] transition-colors" />
                     </td>
                   </tr>
                 );
@@ -331,7 +323,7 @@ const PortfolioOverview = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <GlassCard
           title="Risk Distribution"
-          subtitle="Category risk scores (0-100)"
+          subtitle="Category risk scores"
           icon={<AlertTriangle size={18} />}
         >
           <div className="h-64">
@@ -348,6 +340,7 @@ const PortfolioOverview = () => {
                   tick={{ fill: '#94A3B8', fontSize: 12 }}
                   axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
                   tickLine={false}
+                  tickFormatter={(v) => `${v}%`}
                 />
                 <YAxis
                   dataKey="category"
@@ -357,7 +350,7 @@ const PortfolioOverview = () => {
                   tickLine={false}
                   width={65}
                 />
-                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: '#F1F5F9' }} labelStyle={{ color: '#F1F5F9' }} cursor={{ fill: 'rgba(255,255,255,0.02)' }} formatter={(v) => [`${v}%`, 'Risk Score']} />
                 <Bar dataKey="riskScore" name="Risk Score" radius={[0, 6, 6, 0]} barSize={22}>
                   {riskDistributionData.map((entry, index) => (
                     <Cell key={index} fill={entry.fill} />
@@ -388,7 +381,7 @@ const PortfolioOverview = () => {
                   axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
                   tickLine={false}
                 />
-                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: '#F1F5F9' }} labelStyle={{ color: '#F1F5F9' }} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
                 <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} iconType="circle" iconSize={8} />
                 <Bar dataKey="current" name="Current Stock" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={28} />
                 <Bar dataKey="required" name="Required Stock" fill="rgba(139,92,246,0.5)" radius={[4, 4, 0, 0]} barSize={28} />
@@ -398,10 +391,11 @@ const PortfolioOverview = () => {
         </GlassCard>
       </div>
 
-      {drawerCategory && (
+      {drawerRow && (
         <RiskDrawer
-          category={drawerCategory}
-          onClose={() => setDrawerCategory(null)}
+          category={drawerRow.category}
+          rowData={drawerRow}
+          onClose={() => setDrawerRow(null)}
         />
       )}
     </div>
