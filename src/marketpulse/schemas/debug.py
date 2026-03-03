@@ -43,6 +43,7 @@ class FestivalItemResponse(BaseModel):
     historical_uplift: float
     demand_multiplier: float = 1.0
     days_until: int = 0
+    category_uplifts: dict[str, float] = Field(default_factory=dict)
 
 
 class FestivalListResponse(BaseModel):
