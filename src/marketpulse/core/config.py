@@ -1,5 +1,6 @@
 ﻿from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,8 +26,15 @@ class Settings(BaseSettings):
     mock_bedrock: bool = False
     bedrock_model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
     bedrock_inference_profile_id: str | None = None
-    s3_data_bucket: str = "marketpulse-data"
-    s3_model_bucket: str = "marketpulse-models"
+    s3_data_bucket: str = Field(
+        default="marketpulse-data",
+        validation_alias=AliasChoices("S3_DATA_BUCKET"),
+    )
+    # Accept both singular/plural env names to stay compatible with existing ECS task defs.
+    s3_model_bucket: str = Field(
+        default="marketpulse-models",
+        validation_alias=AliasChoices("S3_MODEL_BUCKET", "S3_MODELS_BUCKET"),
+    )
 
     # CORS — comma-separated allowed origins (empty = dev defaults only)
     frontend_url: str = ""
