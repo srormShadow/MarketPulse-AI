@@ -114,6 +114,11 @@ export default function PredictionSidebar({
   }, [historicalEntries]);
 
   const hasHistoricalChart = chartPoints.length > 0;
+  const chartTheme = {
+    grid: 'color-mix(in srgb, var(--text-3) 24%, transparent)',
+    axis: 'color-mix(in srgb, var(--text-3) 42%, transparent)',
+    tick: 'var(--text-3)',
+  };
 
   if (!isOpen) return null;
 
@@ -129,20 +134,20 @@ export default function PredictionSidebar({
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
         <div
           onClick={(e) => e.stopPropagation()}
-          className={`relative w-full max-w-lg max-h-[85vh] rounded-2xl border ${borderClass} bg-[#0F172A] shadow-2xl shadow-black/40 animate-fade-in-up overflow-hidden`}
+          className={`relative w-full max-w-lg max-h-[85vh] rounded-2xl border ${borderClass} bg-[var(--bg-elevated)] shadow-2xl shadow-black/40 animate-fade-in-up overflow-hidden`}
         >
           {/* Header */}
-          <div className="flex items-start justify-between border-b border-white/10 px-5 py-4">
+          <div className="flex items-start justify-between border-b border-[var(--border)] px-5 py-4">
             <div>
-              <p className="text-xs uppercase tracking-wider text-[#64748B]">Selected Date</p>
-              <h3 className="mt-1 text-sm font-semibold text-[#F1F5F9]">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-3)]">Selected Date</p>
+              <h3 className="mt-1 text-sm font-semibold text-[var(--text-1)]">
                 {selectedDate ? toDateLabel(selectedDate) : 'Choose a date'}
               </h3>
-              <p className={`mt-1 text-xs ${isFestival ? 'text-amber-300' : 'text-blue-300'}`}>{dayLabel}</p>
+              <p className={`mt-1 text-xs ${isFestival ? 'text-[var(--badge-warning-text)]' : 'text-[var(--badge-info-text)]'}`}>{dayLabel}</p>
             </div>
             <button
               onClick={onClose}
-              className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-[#CBD5E1] hover:bg-white/10 transition-colors"
+              className="rounded-lg border border-[var(--border)] bg-white/5 p-1.5 text-[var(--text-2)] hover:bg-white/10 transition-colors"
               aria-label="Close popup"
             >
               <X size={16} />
@@ -151,15 +156,15 @@ export default function PredictionSidebar({
 
           {/* Scrollable content */}
           <div className="space-y-4 overflow-y-auto px-5 py-4" style={{ maxHeight: 'calc(85vh - 90px)' }}>
-            <section className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-              <label htmlFor="stock-select" className="block text-xs text-[#94A3B8]">
+            <section className="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] p-3">
+              <label htmlFor="stock-select" className="block text-xs text-[var(--text-3)]">
                 Stock
               </label>
               <select
                 id="stock-select"
                 value={selectedStock}
                 onChange={(event) => setSelectedStock(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-[#0F172A] px-3 py-2 text-sm text-[#E2E8F0] outline-none focus:border-blue-500"
+                className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-1)] outline-none focus:border-blue-500"
               >
                 {stocks.map((stock) => (
                   <option key={stock} value={stock}>
@@ -167,40 +172,40 @@ export default function PredictionSidebar({
                   </option>
                 ))}
               </select>
-              {!selectedStock && <p className="mt-2 text-xs text-[#94A3B8]">Select a stock to load analytics.</p>}
+              {!selectedStock && <p className="mt-2 text-xs text-[var(--text-3)]">Select a stock to load analytics.</p>}
             </section>
 
-            <section className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-              <p className="text-xs uppercase tracking-wider text-[#64748B]">Prediction</p>
-              {isPredictionLoading && <p className="mt-2 text-sm text-[#94A3B8]">Loading prediction...</p>}
+            <section className="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] p-3">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-3)]">Prediction</p>
+              {isPredictionLoading && <p className="mt-2 text-sm text-[var(--text-3)]">Loading prediction...</p>}
               {!isPredictionLoading && predictionError && (
-                <p className="mt-2 text-sm text-red-300">{predictionError}</p>
+                <p className="mt-2 text-sm text-[var(--badge-danger-text)]">{predictionError}</p>
               )}
               {!isPredictionLoading && !predictionError && predictionData && (
-                <div className="mt-2 space-y-2 text-sm text-[#CBD5E1]">
-                  <p>Predicted demand: <span className="text-[#F1F5F9]">{predictionData.predicted_demand ?? 'N/A'}</span></p>
-                  <p>Risk score: <span className="text-[#F1F5F9]">{predictionData.risk_score != null ? `${Math.round(Number(predictionData.risk_score) * 100)}%` : 'N/A'}</span></p>
-                  <p>Confidence level: <span className="text-[#F1F5F9]">{predictionData.confidence_level ?? 'N/A'}</span></p>
-                  <p>Suggested action: <span className="text-[#F1F5F9]">{predictionData.suggested_action ?? 'N/A'}</span></p>
+                <div className="mt-2 space-y-2 text-sm text-[var(--text-2)]">
+                  <p>Predicted demand: <span className="text-[var(--text-1)]">{predictionData.predicted_demand ?? 'N/A'}</span></p>
+                  <p>Risk score: <span className="text-[var(--text-1)]">{predictionData.risk_score != null ? `${Math.round(Number(predictionData.risk_score) * 100)}%` : 'N/A'}</span></p>
+                  <p>Confidence level: <span className="text-[var(--text-1)]">{predictionData.confidence_level ?? 'N/A'}</span></p>
+                  <p>Suggested action: <span className="text-[var(--text-1)]">{predictionData.suggested_action ?? 'N/A'}</span></p>
                 </div>
               )}
               {!isPredictionLoading && !predictionError && !predictionData && (
-                <p className="mt-2 text-sm text-[#94A3B8]">No prediction returned for this date/stock.</p>
+                <p className="mt-2 text-sm text-[var(--text-3)]">No prediction returned for this date/stock.</p>
               )}
             </section>
 
-            <section className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-              <p className="text-xs uppercase tracking-wider text-[#64748B]">Historical Comparison (Last 2 Years)</p>
+            <section className="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] p-3">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-3)]">Historical Comparison (Last 2 Years)</p>
 
-              {isHistoricalLoading && <p className="mt-2 text-sm text-[#94A3B8]">Loading historical data...</p>}
+              {isHistoricalLoading && <p className="mt-2 text-sm text-[var(--text-3)]">Loading historical data...</p>}
               {!isHistoricalLoading && historicalError && (
-                <p className="mt-2 text-sm text-red-300">{historicalError}</p>
+                <p className="mt-2 text-sm text-[var(--badge-danger-text)]">{historicalError}</p>
               )}
 
               {!isHistoricalLoading && !historicalError && (
                 <div className="mt-3 space-y-2">
                   {historicalEntries.length === 0 && (
-                    <p className="text-sm text-[#94A3B8]">No historical records available for comparison.</p>
+                    <p className="text-sm text-[var(--text-3)]">No historical records available for comparison.</p>
                   )}
 
                   {historicalEntries.map(({ year, payload }) => {
@@ -208,34 +213,41 @@ export default function PredictionSidebar({
                       return <NoDataCard key={year} year={year} subtext="Stock not active during this period" />;
                     }
                     return (
-                      <div key={year} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-                        <p className="text-sm font-semibold text-[#E2E8F0]">{year}</p>
-                        <p className="mt-1 text-sm text-[#CBD5E1]">Sales volume: {payload.sales_volume ?? payload.volume ?? 'N/A'}</p>
-                        <p className="text-sm text-[#CBD5E1]">Demand trend: {payload.demand_trend ?? 'N/A'}</p>
-                        <p className="text-sm text-[#CBD5E1]">% change: {payload.percent_change ?? payload.change_pct ?? 'N/A'}</p>
+                      <div key={year} className="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] p-3">
+                        <p className="text-sm font-semibold text-[var(--text-1)]">{year}</p>
+                        <p className="mt-1 text-sm text-[var(--text-2)]">Sales volume: {payload.sales_volume ?? payload.volume ?? 'N/A'}</p>
+                        <p className="text-sm text-[var(--text-2)]">Demand trend: {payload.demand_trend ?? 'N/A'}</p>
+                        <p className="text-sm text-[var(--text-2)]">% change: {payload.percent_change ?? payload.change_pct ?? 'N/A'}</p>
                       </div>
                     );
                   })}
 
                   {hasHistoricalChart ? (
-                    <div className="mt-3 h-40 rounded-lg border border-white/10 bg-[#0F172A]/60 p-2">
+                    <div className="mt-3 h-40 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)]/60 p-2">
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartPoints}>
-                          <CartesianGrid stroke="#1E293B" strokeDasharray="3 3" />
-                          <XAxis dataKey="year" stroke="#64748B" />
-                          <YAxis stroke="#64748B" />
+                          <defs>
+                            <linearGradient id="miniLine" x1="0" y1="0" x2="1" y2="0">
+                              <stop offset="0%" stopColor="#22d3ee" />
+                              <stop offset="55%" stopColor="#a78bfa" />
+                              <stop offset="100%" stopColor="#f472b6" />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid stroke={chartTheme.grid} strokeDasharray="4 8" />
+                          <XAxis dataKey="year" stroke={chartTheme.axis} tick={{ fill: chartTheme.tick, fontSize: 11 }} />
+                          <YAxis stroke={chartTheme.axis} tick={{ fill: chartTheme.tick, fontSize: 11 }} />
                           <Tooltip
-                            contentStyle={{ backgroundColor: '#1E293B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#E2E8F0', fontSize: 12 }}
-                            itemStyle={{ color: '#F1F5F9' }}
-                            labelStyle={{ color: '#F1F5F9' }}
+                            contentStyle={{ backgroundColor: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-1)', fontSize: 12, boxShadow: '0 12px 24px rgba(5, 3, 14, 0.2)' }}
+                            itemStyle={{ color: 'var(--text-1)' }}
+                            labelStyle={{ color: 'var(--text-1)', fontWeight: 700 }}
                           />
-                          <Line type="monotone" dataKey="sales_volume" stroke="#38BDF8" strokeWidth={2} dot />
+                          <Line type="monotone" dataKey="sales_volume" stroke="url(#miniLine)" strokeWidth={3} dot={{ r: 2.5, fill: '#f472b6', strokeWidth: 0 }} activeDot={{ r: 5, fill: '#f472b6' }} />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
                   ) : (
                     historicalEntries.length > 0 && (
-                      <p className="pt-1 text-sm text-[#94A3B8]">No historical records available for comparison.</p>
+                      <p className="pt-1 text-sm text-[var(--text-3)]">No historical records available for comparison.</p>
                     )
                   )}
                 </div>
@@ -248,3 +260,6 @@ export default function PredictionSidebar({
     document.body
   );
 }
+
+
+

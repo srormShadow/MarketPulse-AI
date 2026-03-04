@@ -7,7 +7,7 @@ import GlassCard from '../components/ui/GlassCard';
 import { apiClient } from '../api/client';
 import { useInventory } from '../context/InventoryContext';
 
-const freshnessTone = (stale) => (stale ? 'text-red-300' : 'text-emerald-300');
+const freshnessTone = (stale) => (stale ? 'text-[var(--badge-danger-text)]' : 'text-[var(--badge-success-text)]');
 
 const parseCsvSummary = async (file) => {
   const text = await file.text();
@@ -280,7 +280,7 @@ const DataManagement = () => {
   return (
     <div className="max-w-6xl space-y-7">
       {anyStaleData && (
-        <div className="rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-sm text-[var(--badge-danger-text)]">
           Models are training on stale data. One or more categories have data older than 7 days.
         </div>
       )}
@@ -294,9 +294,9 @@ const DataManagement = () => {
           {CATEGORIES.map((category) => {
             const row = freshnessRows.find((r) => r.category === category) || { lastUpload: 'Unknown', stale: false };
             return (
-              <div key={category} className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-                <p className="text-xs uppercase tracking-wider text-[#94A3B8]">{category}</p>
-                <p className="text-sm text-[#E2E8F0] mt-1">{row.lastUpload === 'Unknown' ? 'Last upload unknown' : new Date(row.lastUpload).toLocaleString('en-IN')}</p>
+              <div key={category} className="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] p-4">
+                <p className="text-xs uppercase tracking-wider text-[var(--text-3)]">{category}</p>
+                <p className="text-sm text-[var(--text-1)] mt-1">{row.lastUpload === 'Unknown' ? 'Last upload unknown' : new Date(row.lastUpload).toLocaleString('en-IN')}</p>
                 <p className={`text-xs mt-2 ${freshnessTone(row.stale)}`}>
                   {row.stale ? 'Stale (7+ days)' : 'Fresh'}
                 </p>
@@ -321,8 +321,8 @@ const DataManagement = () => {
               {seeding ? <RefreshCw size={26} className="text-blue-400 animate-spin" /> : <Database size={26} className="text-blue-400" />}
             </div>
             <div>
-              <p className="font-bold text-[#F1F5F9] text-base">{seeding ? 'Seeding...' : 'Use Demo Dataset'}</p>
-              <p className="text-xs text-[#64748B] mt-1">
+              <p className="font-bold text-[var(--text-1)] text-base">{seeding ? 'Seeding...' : 'Use Demo Dataset'}</p>
+              <p className="text-xs text-[var(--text-3)] mt-1">
                 {seedStatus?.ok ? `Loaded ${seedStatus.skus} SKUs + ${seedStatus.sales} sales rows` : seedStatus?.message || 'Load seeded sample data for quick testing'}
               </p>
             </div>
@@ -337,7 +337,7 @@ const DataManagement = () => {
               const file = e.dataTransfer?.files?.[0];
               onFileSelected(file);
             }}
-            className={`relative p-6 rounded-xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center gap-3 text-center min-h-[180px] ${isDragOver ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_40px_rgba(59,130,246,0.15)] scale-[1.01]' : 'border-white/10 hover:border-white/20 bg-white/[0.015] hover:bg-white/[0.03]'}`}
+            className={`relative p-6 rounded-xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center gap-3 text-center min-h-[180px] ${isDragOver ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_40px_rgba(59,130,246,0.15)] scale-[1.01]' : 'border-[var(--border)] hover:border-white/20 bg-white/[0.015] hover:bg-[color-mix(in_srgb,var(--bg-elevated)_76%,transparent)]'}`}
           >
             <input
               type="file"
@@ -346,11 +346,11 @@ const DataManagement = () => {
               onChange={(e) => onFileSelected(e.target.files?.[0])}
             />
             <div className={`p-3.5 rounded-xl transition-all duration-300 ${isDragOver ? 'bg-blue-500/15 scale-110' : 'bg-white/5'}`}>
-              <CloudUpload size={28} className={`transition-colors duration-300 ${isDragOver ? 'text-blue-400' : 'text-[#64748B]'}`} />
+              <CloudUpload size={28} className={`transition-colors duration-300 ${isDragOver ? 'text-blue-400' : 'text-[var(--text-3)]'}`} />
             </div>
             <div>
-              <p className="font-semibold text-[#E2E8F0]">{selectedFile ? selectedFile.name : 'Drag & drop CSV file'}</p>
-              <p className="text-xs text-[#64748B] mt-1">or click to browse</p>
+              <p className="font-semibold text-[var(--text-1)]">{selectedFile ? selectedFile.name : 'Drag & drop CSV file'}</p>
+              <p className="text-xs text-[var(--text-3)] mt-1">or click to browse</p>
             </div>
           </div>
         </div>
@@ -363,8 +363,8 @@ const DataManagement = () => {
           >
             {uploading ? 'Uploading...' : 'Upload CSV'}
           </button>
-          {uploadStatus === 'success' && <span className="text-emerald-300 text-sm flex items-center gap-1"><CheckCircle2 size={14} />Upload successful</span>}
-          {uploadStatus === 'error' && <span className="text-red-300 text-sm flex items-center gap-1"><AlertCircle size={14} />{uploadError}</span>}
+          {uploadStatus === 'success' && <span className="text-[var(--badge-success-text)] text-sm flex items-center gap-1"><CheckCircle2 size={14} />Upload successful</span>}
+          {uploadStatus === 'error' && <span className="text-[var(--badge-danger-text)] text-sm flex items-center gap-1"><AlertCircle size={14} />{uploadError}</span>}
         </div>
 
         {(uploading || uploadProgress > 0) && (
@@ -372,20 +372,20 @@ const DataManagement = () => {
             <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
               <div className="h-full bg-blue-500 transition-all" style={{ width: `${uploadProgress}%` }} />
             </div>
-            <p className="text-xs text-[#94A3B8] mt-1">{uploadProgress}%</p>
+            <p className="text-xs text-[var(--text-3)] mt-1">{uploadProgress}%</p>
           </div>
         )}
 
         {uploadSummary && (
-          <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.02] p-4">
-            <p className="text-xs uppercase tracking-wider text-[#94A3B8] mb-3">Validation Summary</p>
+          <div className="mt-5 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] p-4">
+            <p className="text-xs uppercase tracking-wider text-[var(--text-3)] mb-3">Validation Summary</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-              <p>Rows accepted: <span className="font-semibold text-emerald-300">{uploadSummary.acceptedRows}</span></p>
-              <p>Rows rejected: <span className="font-semibold text-red-300">{uploadSummary.rejectedRows}</span></p>
-              <p>Date range: <span className="font-semibold text-[#E2E8F0]">{uploadSummary.dateRange}</span></p>
-              <p>Categories: <span className="font-semibold text-[#E2E8F0]">{uploadSummary.categoriesDetected.join(', ') || 'n/a'}</span></p>
-              <p>Retrain: <span className="font-semibold text-[#E2E8F0]">{uploadSummary.modelsWillRetrain ? 'Yes' : 'No'}</span></p>
-              <p>Reject reason: <span className="font-semibold text-[#E2E8F0]">{uploadSummary.rejectedRows > 0 ? uploadSummary.rejectedReason : 'None'}</span></p>
+              <p>Rows accepted: <span className="font-semibold text-[var(--badge-success-text)]">{uploadSummary.acceptedRows}</span></p>
+              <p>Rows rejected: <span className="font-semibold text-[var(--badge-danger-text)]">{uploadSummary.rejectedRows}</span></p>
+              <p>Date range: <span className="font-semibold text-[var(--text-1)]">{uploadSummary.dateRange}</span></p>
+              <p>Categories: <span className="font-semibold text-[var(--text-1)]">{uploadSummary.categoriesDetected.join(', ') || 'n/a'}</span></p>
+              <p>Retrain: <span className="font-semibold text-[var(--text-1)]">{uploadSummary.modelsWillRetrain ? 'Yes' : 'No'}</span></p>
+              <p>Reject reason: <span className="font-semibold text-[var(--text-1)]">{uploadSummary.rejectedRows > 0 ? uploadSummary.rejectedReason : 'None'}</span></p>
             </div>
           </div>
         )}
@@ -399,7 +399,7 @@ const DataManagement = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[#64748B] text-xs uppercase tracking-wider border-b border-white/5">
+              <tr className="text-left text-[var(--text-3)] text-xs uppercase tracking-wider border-b border-[var(--border-soft)]">
                 <th className="pb-3 pr-6 font-semibold">Category</th>
                 <th className="pb-3 pr-6 font-semibold">Last Trained</th>
                 <th className="pb-3 pr-6 font-semibold text-right">Training Points</th>
@@ -409,12 +409,12 @@ const DataManagement = () => {
             </thead>
             <tbody>
               {modelRows.map((row) => (
-                <tr key={row.category} className="border-b border-white/5">
-                  <td className="py-3 pr-6 text-[#F1F5F9] font-semibold">{row.category}</td>
-                  <td className="py-3 pr-6 text-[#CBD5E1]">{row.lastTrained === 'Unknown' ? 'Unknown' : new Date(row.lastTrained).toLocaleString('en-IN')}</td>
-                  <td className="py-3 pr-6 text-right font-mono text-[#CBD5E1]">{row.trainingPoints}</td>
+                <tr key={row.category} className="border-b border-[var(--border-soft)]">
+                  <td className="py-3 pr-6 text-[var(--text-1)] font-semibold">{row.category}</td>
+                  <td className="py-3 pr-6 text-[var(--text-2)]">{row.lastTrained === 'Unknown' ? 'Unknown' : new Date(row.lastTrained).toLocaleString('en-IN')}</td>
+                  <td className="py-3 pr-6 text-right font-mono text-[var(--text-2)]">{row.trainingPoints}</td>
                   <td className="py-3 pr-6">
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${row.health === 'healthy' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' : row.health === 'watch' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' : 'bg-red-500/10 text-red-300 border-red-500/30'}`}>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${row.health === 'healthy' ? 'bg-emerald-500/10 text-[var(--badge-success-text)] border-emerald-500/30' : row.health === 'watch' ? 'bg-amber-500/10 text-[var(--badge-warning-text)] border-amber-500/30' : 'bg-red-500/10 text-[var(--badge-danger-text)] border-red-500/30'}`}>
                       {row.health}
                     </span>
                   </td>
@@ -441,12 +441,12 @@ const DataManagement = () => {
         icon={<Info size={18} />}
       >
         {recommendationFallback && (
-          <p className="text-xs text-amber-300 mb-2">Recommendation log endpoint unavailable; showing fallback from latest forecast decisions.</p>
+          <p className="text-xs text-[var(--badge-warning-text)] mb-2">Recommendation log endpoint unavailable; showing fallback from latest forecast decisions.</p>
         )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[#64748B] text-xs uppercase tracking-wider border-b border-white/5">
+              <tr className="text-left text-[var(--text-3)] text-xs uppercase tracking-wider border-b border-[var(--border-soft)]">
                 <th className="pb-3 pr-6 font-semibold">Date</th>
                 <th className="pb-3 pr-6 font-semibold">Category</th>
                 <th className="pb-3 pr-6 font-semibold">Action</th>
@@ -456,17 +456,17 @@ const DataManagement = () => {
             </thead>
             <tbody>
               {recommendations.map((row, idx) => (
-                <tr key={`${row.category}-${row.date}-${idx}`} className="border-b border-white/5">
-                  <td className="py-3 pr-6 text-[#CBD5E1]">{new Date(row.date || row.generated_at || Date.now()).toLocaleString('en-IN')}</td>
-                  <td className="py-3 pr-6 text-[#F1F5F9]">{row.category}</td>
-                  <td className="py-3 pr-6 text-[#CBD5E1]">{(row.action && row.action !== 'n/a' ? row.action : null) || (row.recommended_action && row.recommended_action !== 'n/a' ? row.recommended_action : null) || 'MAINTAIN'}</td>
-                  <td className="py-3 pr-6 text-right font-mono text-[#CBD5E1]">{Number(row.order_quantity || 0).toLocaleString()}</td>
-                  <td className="py-3 text-right font-mono text-[#CBD5E1]">{Math.round(Number(row.risk_score || 0) * 100)}%</td>
+                <tr key={`${row.category}-${row.date}-${idx}`} className="border-b border-[var(--border-soft)]">
+                  <td className="py-3 pr-6 text-[var(--text-2)]">{new Date(row.date || row.generated_at || Date.now()).toLocaleString('en-IN')}</td>
+                  <td className="py-3 pr-6 text-[var(--text-1)]">{row.category}</td>
+                  <td className="py-3 pr-6 text-[var(--text-2)]">{(row.action && row.action !== 'n/a' ? row.action : null) || (row.recommended_action && row.recommended_action !== 'n/a' ? row.recommended_action : null) || 'MAINTAIN'}</td>
+                  <td className="py-3 pr-6 text-right font-mono text-[var(--text-2)]">{Number(row.order_quantity || 0).toLocaleString()}</td>
+                  <td className="py-3 text-right font-mono text-[var(--text-2)]">{Math.round(Number(row.risk_score || 0) * 100)}%</td>
                 </tr>
               ))}
               {!recommendations.length && (
                 <tr>
-                  <td colSpan={5} className="py-4 text-center text-[#94A3B8]">No recommendation history available.</td>
+                  <td colSpan={5} className="py-4 text-center text-[var(--text-3)]">No recommendation history available.</td>
                 </tr>
               )}
             </tbody>
@@ -481,7 +481,7 @@ const DataManagement = () => {
       >
         <button
           onClick={() => setAdvancedOpen((v) => !v)}
-          className="w-full flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm font-semibold text-[#E2E8F0]"
+          className="w-full flex items-center justify-between rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] px-4 py-3 text-sm font-semibold text-[var(--text-1)]"
         >
           <span>Inventory Configuration</span>
           {advancedOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -490,7 +490,7 @@ const DataManagement = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
             {CATEGORIES.map((category) => (
               <div key={category} className="space-y-2.5">
-                <label className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">{category} Stock</label>
+                <label className="text-xs font-semibold text-[var(--text-3)] uppercase tracking-wider">{category} Stock</label>
                 <div className="relative group">
                   <input
                     type="number"
@@ -505,9 +505,9 @@ const DataManagement = () => {
                       setApplyMessage('');
                       setApplyError('');
                     }}
-                    className="w-full bg-[#0B1220] border border-white/10 rounded-xl px-4 py-3 text-[#E2E8F0] focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/30 outline-none transition-all font-mono"
+                    className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-4 py-3 text-[var(--text-1)] focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/30 outline-none transition-all font-mono"
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#475569] font-medium">units</span>
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[var(--text-3)] font-medium">units</span>
                 </div>
               </div>
             ))}
@@ -520,8 +520,8 @@ const DataManagement = () => {
                 {isApplying && <RefreshCw size={14} className="animate-spin" />}
                 {isApplying ? 'Applying...' : 'Apply Changes'}
               </button>
-              {applyMessage && <span className="text-emerald-300 text-sm">{applyMessage}</span>}
-              {applyError && <span className="text-red-300 text-sm">{applyError}</span>}
+              {applyMessage && <span className="text-[var(--badge-success-text)] text-sm">{applyMessage}</span>}
+              {applyError && <span className="text-[var(--badge-danger-text)] text-sm">{applyError}</span>}
             </div>
           </div>
         )}
@@ -531,3 +531,6 @@ const DataManagement = () => {
 };
 
 export default DataManagement;
+
+
+

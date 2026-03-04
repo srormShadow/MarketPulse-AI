@@ -147,23 +147,23 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
 
       {/* Drawer Panel */}
       <div
-        className="fixed top-0 right-0 h-full w-full max-w-[480px] bg-[#0B1220] border-l border-white/10 z-50 overflow-y-auto shadow-2xl shadow-black/50"
+        className="fixed top-0 right-0 h-full w-full max-w-[480px] bg-[var(--bg)] border-l border-[var(--border)] z-50 overflow-y-auto shadow-2xl shadow-black/50"
         style={{ animation: 'slideInRight 0.3s ease-out both' }}
       >
         {/* Header */}
-        <div className="sticky top-0 bg-[#0B1220]/95 backdrop-blur-md border-b border-white/5 px-6 py-4 flex items-center justify-between z-10">
+        <div className="sticky top-0 bg-[var(--bg)]/95 backdrop-blur-md border-b border-[var(--border-soft)] px-6 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-red-500/10 rounded-lg">
               <ShieldAlert size={20} className="text-red-400" />
             </div>
             <div>
-              <h2 className="font-bold text-[#F1F5F9] text-lg">{category}</h2>
-              <p className="text-xs text-[#64748B]">Risk Analysis & Breakdown</p>
+              <h2 className="font-bold text-[var(--text-1)] text-lg">{category}</h2>
+              <p className="text-xs text-[var(--text-3)]">Risk Analysis & Breakdown</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-white/5 text-[#64748B] hover:text-[#E2E8F0] transition-colors cursor-pointer"
+            className="p-2 rounded-lg hover:bg-white/5 text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
           >
             <X size={20} />
           </button>
@@ -183,7 +183,7 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
             <p className="text-sm font-bold uppercase tracking-wider" style={{ color: riskColor(data.compositeRisk) }}>
               {riskLabel(data.compositeRisk)} Risk
             </p>
-            <p className="text-xs text-[#64748B] mt-1">
+            <p className="text-xs text-[var(--text-3)] mt-1">
               Composite score = 0.6 x Inventory + 0.4 x Uncertainty
             </p>
           </div>
@@ -192,7 +192,7 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
           <Section title="Risk Factor Breakdown" icon={<AlertTriangle size={16} />}>
             <RiskBar label="Inventory Risk" value={riskPctInv} weight="60%" color={riskColor(riskPctInv)} />
             <RiskBar label="Uncertainty Risk" value={riskPctUnc} weight="40%" color={riskColor(riskPctUnc)} />
-            <p className="text-[10px] text-[#475569] mt-2 leading-relaxed">
+            <p className="text-[10px] text-[var(--text-3)] mt-2 leading-relaxed">
               Inventory risk measures how far below the reorder point current stock sits.
               Uncertainty risk measures demand volatility (coefficient of variation).
             </p>
@@ -202,7 +202,7 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
           <Section title="Why Risk Is Elevated" icon={<ShieldAlert size={16} />}>
             <ul className="space-y-2">
               {data.reasons.map((reason, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-sm text-[#CBD5E1]">
+                <li key={i} className="flex items-start gap-2.5 text-sm text-[var(--text-2)]">
                   <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: riskColor(data.compositeRisk) }} />
                   {reason}
                 </li>
@@ -213,9 +213,9 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
           {/* ── Inventory Gap ─────────────────────────────────── */}
           <Section title="Inventory Gap" icon={<PackageX size={16} />}>
             <div className="space-y-3">
-              <div className="flex justify-between text-xs text-[#94A3B8]">
-                <span>Current: <span className="text-[#E2E8F0] font-bold">{data.currentStock.toLocaleString()}</span></span>
-                <span>Required: <span className="text-[#E2E8F0] font-bold">{data.requiredStock.toLocaleString()}</span></span>
+              <div className="flex justify-between text-xs text-[var(--text-3)]">
+                <span>Current: <span className="text-[var(--text-1)] font-bold">{data.currentStock.toLocaleString()}</span></span>
+                <span>Required: <span className="text-[var(--text-1)] font-bold">{data.requiredStock.toLocaleString()}</span></span>
               </div>
               <div className="relative h-3 bg-white/5 rounded-full overflow-hidden">
                 <div
@@ -234,14 +234,14 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
                   />
                 )}
               </div>
-              <div className="flex justify-between text-[10px] text-[#475569]">
+              <div className="flex justify-between text-[10px] text-[var(--text-3)]">
                 <span>{stockPct}% filled</span>
                 <span className="text-purple-400">Reorder Pt: {data.reorderPoint.toLocaleString()}</span>
               </div>
               {gap > 0 && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/5 border border-red-500/15 text-sm">
                   <PackageX size={14} className="text-red-400 shrink-0" />
-                  <span className="text-red-300">
+                  <span className="text-[var(--badge-danger-text)]">
                     Deficit of <span className="font-bold">{gap.toLocaleString()}</span> units to reach required level
                   </span>
                 </div>
@@ -269,23 +269,23 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
                 <Target size={16} className={data.reorderBreach.breached ? 'text-red-400' : 'text-emerald-400'} />
               </div>
               <div>
-                <p className={`text-sm font-bold ${data.reorderBreach.breached ? 'text-red-300' : 'text-emerald-300'}`}>
+                <p className={`text-sm font-bold ${data.reorderBreach.breached ? 'text-[var(--badge-danger-text)]' : 'text-[var(--badge-success-text)]'}`}>
                   {data.reorderBreach.breached ? 'Below Reorder Point' : 'No Breach'}
                 </p>
                 {data.reorderBreach.breached && data.reorderBreach.deficit > 0 && (
-                  <p className="text-xs text-[#94A3B8] mt-0.5">
+                  <p className="text-xs text-[var(--text-3)] mt-0.5">
                     {data.reorderBreach.deficit.toLocaleString()} units below reorder point
                   </p>
                 )}
               </div>
             </div>
-            <p className="text-sm text-[#94A3B8] leading-relaxed">{data.reorderBreach.explanation}</p>
-            <div className="flex items-center gap-2 mt-3 text-xs text-[#64748B]">
+            <p className="text-sm text-[var(--text-3)] leading-relaxed">{data.reorderBreach.explanation}</p>
+            <div className="flex items-center gap-2 mt-3 text-xs text-[var(--text-3)]">
               <Clock size={12} />
-              <span>Days until stockout: <span className="text-[#E2E8F0] font-bold">{data.daysUntilStockout > 900 ? 'N/A' : data.daysUntilStockout}</span></span>
+              <span>Days until stockout: <span className="text-[var(--text-1)] font-bold">{data.daysUntilStockout > 900 ? 'N/A' : data.daysUntilStockout}</span></span>
               <span className="mx-1">|</span>
               <Shield size={12} />
-              <span>Safety stock: <span className="text-[#E2E8F0] font-bold">{data.safetyStock.toLocaleString()}</span></span>
+              <span>Safety stock: <span className="text-[var(--text-1)] font-bold">{data.safetyStock.toLocaleString()}</span></span>
             </div>
           </Section>
 
@@ -296,15 +296,15 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
                 <BarChart3 size={20} className="text-blue-400" />
               </div>
               <div className="flex-1">
-                <p className="text-[10px] text-[#64748B] uppercase font-bold tracking-wider">Recommended Action</p>
-                <p className="text-base font-bold text-[#F1F5F9]">{data.recommendedAction}</p>
+                <p className="text-[10px] text-[var(--text-3)] uppercase font-bold tracking-wider">Recommended Action</p>
+                <p className="text-base font-bold text-[var(--text-1)]">{data.recommendedAction}</p>
               </div>
-              <ArrowRight size={18} className="text-[#475569]" />
+              <ArrowRight size={18} className="text-[var(--text-3)]" />
             </div>
             {data.orderQty > 0 && (
-              <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between text-sm">
-                <span className="text-[#94A3B8]">Order quantity</span>
-                <span className="font-bold font-mono text-[#F1F5F9]">{data.orderQty.toLocaleString()} units</span>
+              <div className="mt-3 pt-3 border-t border-[var(--border-soft)] flex items-center justify-between text-sm">
+                <span className="text-[var(--text-3)]">Order quantity</span>
+                <span className="font-bold font-mono text-[var(--text-1)]">{data.orderQty.toLocaleString()} units</span>
               </div>
             )}
           </div>
@@ -319,7 +319,7 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
 
 const Section = ({ title, icon, children }) => (
   <div className="space-y-3">
-    <div className="flex items-center gap-2 text-[#94A3B8]">
+    <div className="flex items-center gap-2 text-[var(--text-3)]">
       {icon}
       <h3 className="text-xs font-bold uppercase tracking-wider">{title}</h3>
     </div>
@@ -330,7 +330,7 @@ const Section = ({ title, icon, children }) => (
 const RiskBar = ({ label, value, weight, color }) => (
   <div className="mb-2.5">
     <div className="flex items-center justify-between text-xs mb-1.5">
-      <span className="text-[#94A3B8]">{label} <span className="text-[#475569]">({weight})</span></span>
+      <span className="text-[var(--text-3)]">{label} <span className="text-[var(--text-3)]">({weight})</span></span>
       <span className="font-mono font-bold" style={{ color }}>{value}%</span>
     </div>
     <div className="h-2 bg-white/5 rounded-full overflow-hidden">
@@ -343,10 +343,13 @@ const RiskBar = ({ label, value, weight, color }) => (
 );
 
 const MiniStat = ({ label, value }) => (
-  <div className="bg-white/[0.03] border border-white/5 rounded-lg p-2.5 text-center">
-    <p className="text-[10px] text-[#64748B] uppercase tracking-wider font-semibold">{label}</p>
-    <p className="text-sm font-bold text-[#E2E8F0] mt-0.5 font-mono">{value}</p>
+  <div className="bg-[color-mix(in_srgb,var(--bg-elevated)_76%,transparent)] border border-[var(--border-soft)] rounded-lg p-2.5 text-center">
+    <p className="text-[10px] text-[var(--text-3)] uppercase tracking-wider font-semibold">{label}</p>
+    <p className="text-sm font-bold text-[var(--text-1)] mt-0.5 font-mono">{value}</p>
   </div>
 );
 
 export default RiskDrawer;
+
+
+

@@ -8,6 +8,14 @@ import FestivalCalendar from '../components/festival/FestivalCalendar';
 import { apiClient } from '../api/client';
 import { useInventory } from '../context/InventoryContext';
 
+const chartTheme = {
+  grid: 'color-mix(in srgb, var(--text-3) 24%, transparent)',
+  axis: 'color-mix(in srgb, var(--text-3) 42%, transparent)',
+  tick: 'var(--text-3)',
+  label: 'var(--text-1)',
+  cursor: 'color-mix(in srgb, var(--brand-2) 12%, transparent)',
+};
+
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const daysUntil = (dateValue) => {
   const now = startOfDay(new Date());
@@ -20,9 +28,9 @@ const readinessStatus = (gapRatio) => {
   return 'READY';
 };
 const readinessStyle = (status) => {
-  if (status === 'CRITICAL') return 'bg-red-500/15 text-red-200 border-red-500/35';
-  if (status === 'AT RISK') return 'bg-amber-500/15 text-amber-200 border-amber-500/35';
-  return 'bg-emerald-500/15 text-emerald-200 border-emerald-500/35';
+  if (status === 'CRITICAL') return 'bg-red-500/15 text-[var(--badge-danger-text)] border-red-500/35';
+  if (status === 'AT RISK') return 'bg-amber-500/15 text-[var(--badge-warning-text)] border-amber-500/35';
+  return 'bg-emerald-500/15 text-[var(--badge-success-text)] border-emerald-500/35';
 };
 
 const FestivalIntelligence = () => {
@@ -149,13 +157,13 @@ const FestivalIntelligence = () => {
   }, [diagnosticsAll]);
 
   if (loading) {
-    return <div className="text-sm text-[#94A3B8]">Loading festival intelligence...</div>;
+    return <div className="text-sm text-[var(--text-3)]">Loading festival intelligence...</div>;
   }
 
   return (
     <div className="space-y-6">
       {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200 text-sm">
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-[var(--badge-danger-text)] text-sm">
           {error}
         </div>
       )}
@@ -170,7 +178,7 @@ const FestivalIntelligence = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[#64748B] text-xs uppercase tracking-wider border-b border-white/5">
+              <tr className="text-left text-[var(--text-3)] text-xs uppercase tracking-wider border-b border-[var(--border-soft)]">
                 <th className="pb-3 pr-6 font-semibold">Festival</th>
                 <th className="pb-3 pr-6 font-semibold">Category</th>
                 <th className="pb-3 pr-6 font-semibold text-right">Current Stock</th>
@@ -181,12 +189,12 @@ const FestivalIntelligence = () => {
             </thead>
             <tbody>
               {readinessRows.map((row, idx) => (
-                <tr key={`${row.festival}-${row.category}-${idx}`} className="border-b border-white/5">
-                  <td className="py-3 pr-6 text-[#F1F5F9]">{row.festival}</td>
-                  <td className="py-3 pr-6 text-[#CBD5E1]">{row.category}</td>
-                  <td className="py-3 pr-6 text-right font-mono text-[#CBD5E1]">{row.currentStock.toLocaleString()}</td>
-                  <td className="py-3 pr-6 text-right font-mono text-[#CBD5E1]">{row.requiredStock.toLocaleString()}</td>
-                  <td className="py-3 pr-6 text-right font-mono text-[#CBD5E1]">{row.gap.toLocaleString()}</td>
+                <tr key={`${row.festival}-${row.category}-${idx}`} className="border-b border-[var(--border-soft)]">
+                  <td className="py-3 pr-6 text-[var(--text-1)]">{row.festival}</td>
+                  <td className="py-3 pr-6 text-[var(--text-2)]">{row.category}</td>
+                  <td className="py-3 pr-6 text-right font-mono text-[var(--text-2)]">{row.currentStock.toLocaleString()}</td>
+                  <td className="py-3 pr-6 text-right font-mono text-[var(--text-2)]">{row.requiredStock.toLocaleString()}</td>
+                  <td className="py-3 pr-6 text-right font-mono text-[var(--text-2)]">{row.gap.toLocaleString()}</td>
                   <td className="py-3">
                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${readinessStyle(row.status)}`}>
                       {row.status}
@@ -196,7 +204,7 @@ const FestivalIntelligence = () => {
               ))}
               {!readinessRows.length && (
                 <tr>
-                  <td colSpan={6} className="py-4 text-center text-[#94A3B8]">No readiness rows available.</td>
+                  <td colSpan={6} className="py-4 text-center text-[var(--text-3)]">No readiness rows available.</td>
                 </tr>
               )}
             </tbody>
@@ -210,22 +218,22 @@ const FestivalIntelligence = () => {
         icon={<Flame size={18} />}
       >
         {diagnosticsFallback && (
-          <p className="text-xs text-amber-300 mb-3">`GET /diagnostics/all` unavailable; using fallback sensitivity values.</p>
+          <p className="text-xs text-[var(--badge-warning-text)] mb-3">`GET /diagnostics/all` unavailable; using fallback sensitivity values.</p>
         )}
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={sensitivityData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="category" tick={{ fill: '#CBD5E1', fontSize: 12 }} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} tickLine={false} />
-              <YAxis tick={{ fill: '#94A3B8', fontSize: 12 }} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} tickLine={false} />
+              <CartesianGrid strokeDasharray="4 8" stroke={chartTheme.grid} />
+              <XAxis dataKey="category" tick={{ fill: chartTheme.label, fontSize: 12 }} axisLine={{ stroke: chartTheme.axis }} tickLine={false} />
+              <YAxis tick={{ fill: chartTheme.tick, fontSize: 12 }} axisLine={{ stroke: chartTheme.axis }} tickLine={false} />
               <Tooltip
                 formatter={(value) => [Number(value).toFixed(3), 'festival_score coef']}
-                contentStyle={{ backgroundColor: '#1E293B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#E2E8F0', fontSize: 12 }}
-                itemStyle={{ color: '#F1F5F9' }}
-                labelStyle={{ color: '#F1F5F9' }}
-                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                contentStyle={{ backgroundColor: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-1)', fontSize: 12, boxShadow: '0 12px 24px rgba(5, 3, 14, 0.2)' }}
+                itemStyle={{ color: 'var(--text-1)' }}
+                labelStyle={{ color: 'var(--text-1)', fontWeight: 700 }}
+                cursor={{ fill: chartTheme.cursor }}
               />
-              <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={36}>
+              <Bar dataKey="value" radius={[10, 10, 0, 0]} barSize={32}>
                 {sensitivityData.map((row, idx) => (
                   <Cell key={`${row.category}-${idx}`} fill={row.value >= 1.0 ? '#EF4444' : row.value >= 0.5 ? '#F59E0B' : '#10B981'} />
                 ))}
@@ -239,3 +247,6 @@ const FestivalIntelligence = () => {
 };
 
 export default FestivalIntelligence;
+
+
+
