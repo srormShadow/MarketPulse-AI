@@ -106,11 +106,11 @@ function urgencyBorder(daysUntil) {
 }
 
 function daysUntilLabel(daysUntil) {
-  if (daysUntil < 0) return { text: 'Passed', cls: 'text-[#64748B]' };
+  if (daysUntil < 0) return { text: 'Passed', cls: 'text-[var(--text-3)]' };
   if (daysUntil === 0) return { text: 'Today!', cls: 'text-emerald-400 font-bold' };
   if (daysUntil <= 7) return { text: `${daysUntil} days away`, cls: 'text-red-400' };
   if (daysUntil <= 14) return { text: `${daysUntil} days away`, cls: 'text-amber-400' };
-  return { text: `${daysUntil} days away`, cls: 'text-[#94A3B8]' };
+  return { text: `${daysUntil} days away`, cls: 'text-[var(--text-3)]' };
 }
 
 export default function FestivalCalendar({
@@ -303,30 +303,30 @@ export default function FestivalCalendar({
 
   return (
     <>
-      <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#0F172A] to-[#1E293B] p-5">
+      <div className="rounded-2xl border border-[var(--border)] bg-gradient-to-br from-[var(--panel)] to-[var(--panel-soft)] p-5">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Calendar size={18} className="text-blue-400" />
-            <h3 className="text-sm font-semibold text-[#F1F5F9]">Festival Calendar</h3>
+            <h3 className="text-sm font-semibold text-[var(--text-1)]">Festival Calendar</h3>
           </div>
 
           <div className="flex items-center gap-1">
             <button
               onClick={goPrev}
               disabled={!canGoPrev}
-              className="rounded-lg border border-white/10 bg-white/5 p-1.5 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
+              className="rounded-lg border border-[var(--border)] bg-white/5 p-1.5 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
             >
-              <ChevronLeft size={14} className="text-[#94A3B8]" />
+              <ChevronLeft size={14} className="text-[var(--text-3)]" />
             </button>
-            <span className="min-w-[120px] px-3 py-1 text-center text-xs font-medium text-[#CBD5E1]">
+            <span className="min-w-[120px] px-3 py-1 text-center text-xs font-medium text-[var(--text-2)]">
               {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
             </span>
             <button
               onClick={goNext}
               disabled={!canGoNext}
-              className="rounded-lg border border-white/10 bg-white/5 p-1.5 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
+              className="rounded-lg border border-[var(--border)] bg-white/5 p-1.5 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
             >
-              <ChevronRight size={14} className="text-[#94A3B8]" />
+              <ChevronRight size={14} className="text-[var(--text-3)]" />
             </button>
           </div>
         </div>
@@ -348,7 +348,7 @@ export default function FestivalCalendar({
                 const dayDate = new Date(selectedYear, selectedMonth - 1, day);
                 const dayName = DAY_ABBR[dayDate.getDay()];
 
-                let cellClass = 'border-white/5 bg-white/[0.03]';
+                let cellClass = 'border-[var(--border-soft)] bg-[color-mix(in_srgb,var(--bg-elevated)_76%,transparent)]';
                 if (todayFlag) cellClass = 'border-blue-500 bg-blue-500/10';
                 if (festival) cellClass = 'border-amber-400 bg-amber-400/[0.12]';
 
@@ -375,15 +375,15 @@ export default function FestivalCalendar({
                         );
                       }
                       return (
-                        <span className="absolute -top-0.5 text-[10px] leading-none text-amber-300">
+                        <span className="absolute -top-0.5 text-[10px] leading-none text-[var(--badge-warning-text)]">
                           {badge.value}
                         </span>
                       );
                     })()}
-                    <span className={`text-[9px] ${todayFlag ? 'text-blue-300' : 'text-[#64748B]'} ${festival ? 'mt-1.5' : ''}`}>
+                    <span className={`text-[9px] ${todayFlag ? 'text-blue-500' : 'text-[var(--text-3)]'} ${festival ? 'mt-1.5' : ''}`}>
                       {dayName}
                     </span>
-                    <span className={`text-sm leading-none ${todayFlag ? 'font-bold text-blue-300' : 'text-[#CBD5E1]'}`}>
+                    <span className={`text-sm leading-none ${todayFlag ? 'font-bold text-blue-600' : 'text-[var(--text-2)]'}`}>
                       {day}
                     </span>
                   </button>
@@ -391,24 +391,24 @@ export default function FestivalCalendar({
               })}
         </div>
 
-        {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
+        {error && <p className="mt-2 text-xs text-[var(--badge-danger-text)]">{error}</p>}
 
         {variant === 'full' && (
           <div className="mt-4 space-y-3">
             {!loading && festivals.length === 0 && (
               <div className="py-6 text-center">
-                <p className="text-sm text-[#94A3B8]">
+                <p className="text-sm text-[var(--text-3)]">
                   No festivals in {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
                 </p>
                 {nextFestival && (
                   <>
-                    <p className="mt-2 text-xs text-[#64748B]">
-                      Next festival: <span className="text-amber-300">{nextFestival.festival_name}</span> on{' '}
+                    <p className="mt-2 text-xs text-[var(--text-3)]">
+                      Next festival: <span className="text-[var(--badge-warning-text)]">{nextFestival.festival_name}</span> on{' '}
                       {formatFullDate(nextFestival.date)} - {getDaysUntil(nextFestival.date)} days away
                     </p>
                     <button
                       onClick={() => jumpToFestival(nextFestival)}
-                      className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-400/20"
+                      className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-1.5 text-xs font-medium text-[var(--badge-warning-text)] transition hover:bg-amber-400/20"
                     >
                       Jump to {MONTH_NAMES[new Date(`${nextFestival.date}T00:00:00`).getMonth()]}
                     </button>
@@ -432,7 +432,7 @@ export default function FestivalCalendar({
                     cardRefs.current[f.festival_name] = el;
                   }}
                   className={`
-                    overflow-hidden rounded-xl border border-white/10 bg-white/[0.02] transition-all
+                    overflow-hidden rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] transition-all
                     ${urgencyBorder(du)}
                     ${isHighlighted ? 'ring-1 ring-amber-400/50' : ''}
                   `}
@@ -442,14 +442,14 @@ export default function FestivalCalendar({
                       <span className="text-base">
                         {FESTIVAL_EMOJI[f.festival_name] || '🎉'}
                       </span>
-                      <span className="text-sm font-semibold text-[#F1F5F9]">{f.festival_name}</span>
+                      <span className="text-sm font-semibold text-[var(--text-1)]">{f.festival_name}</span>
                     </div>
                     <span className={`text-xs ${label.cls}`}>{label.text}</span>
                   </div>
-                  <p className="-mt-1 px-4 pb-2 text-xs text-[#64748B]">{formatFullDate(f.date)}</p>
+                  <p className="-mt-1 px-4 pb-2 text-xs text-[var(--text-3)]">{formatFullDate(f.date)}</p>
 
-                  <div className="space-y-2 border-t border-white/5 px-4 py-3">
-                    <p className="mb-1 text-[10px] uppercase tracking-wider text-[#64748B]">Expected Demand Impact</p>
+                  <div className="space-y-2 border-t border-[var(--border-soft)] px-4 py-3">
+                    <p className="mb-1 text-[10px] uppercase tracking-wider text-[var(--text-3)]">Expected Demand Impact</p>
                     {cats.map((cat) => {
                       const catUplift = f.category_uplifts?.[cat];
                       const pct = Math.round(
@@ -459,23 +459,23 @@ export default function FestivalCalendar({
                       return (
                         <div key={cat} className="flex items-center gap-2">
                           <span className="w-3 text-xs">{CATEGORY_EMOJI[cat] || '📦'}</span>
-                          <span className="w-20 truncate text-xs text-[#CBD5E1]">{cat}</span>
+                          <span className="w-20 truncate text-xs text-[var(--text-2)]">{cat}</span>
                           <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/5">
                             <div
                               className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300"
                               style={{ width: `${barWidth}%` }}
                             />
                           </div>
-                          <span className="w-10 text-right text-xs font-medium text-amber-300">+{pct}%</span>
+                          <span className="w-10 text-right text-xs font-medium text-[var(--badge-warning-text)]">+{pct}%</span>
                         </div>
                       );
                     })}
                   </div>
 
                   {du >= 0 && (
-                    <div className="border-t border-white/5 bg-white/[0.01] px-4 py-2.5">
-                      <p className="text-xs text-amber-200">Stock up by {getStockUpDate(f.date, minLead)}</p>
-                      <p className="mt-0.5 text-[10px] text-[#64748B]">
+                    <div className="border-t border-[var(--border-soft)] bg-white/[0.01] px-4 py-2.5">
+                      <p className="text-xs text-[var(--badge-warning-text)]">Stock up by {getStockUpDate(f.date, minLead)}</p>
+                      <p className="mt-0.5 text-[10px] text-[var(--text-3)]">
                         Order {minLead} days before festival accounting for your lead time
                       </p>
                     </div>
@@ -500,3 +500,6 @@ export default function FestivalCalendar({
     </>
   );
 }
+
+
+
