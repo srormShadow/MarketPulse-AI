@@ -17,3 +17,8 @@ export async function healthCheck() {
   return response.data;
 }
 
+export async function simulateDiscount(category, payload) {
+  const response = await apiClient.post(`/simulate/discount/${encodeURIComponent(category)}`, payload);
+  return response.data;
+}
+
