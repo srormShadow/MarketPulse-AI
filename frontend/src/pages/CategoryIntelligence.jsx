@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   ShoppingCart, TrendingUp, Shield, Target, ChevronDown, Bot,
-  Sparkles, AlertTriangle, Clock3,
+  Sparkles, AlertTriangle, Clock3, FlaskConical, SlidersHorizontal,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell,
 } from 'recharts';
 import GlassCard from '../components/ui/GlassCard';
-import { apiClient } from '../api/client';
+import { apiClient, simulateDiscount } from '../api/client';
 import { useInventory } from '../context/InventoryContext';
 
 const chartTheme = {
@@ -28,7 +28,7 @@ const ACTION_STYLES = {
 };
 
 const FEATURE_LABELS = {
-  lag_1: 'Yesterday\u2019s Sales',
+  lag_1: 'Yesterday\'s Sales',
   lag_7: 'Same Day Last Week',
   festival_score: 'Festival Impact',
   rolling_mean_7: '7-Day Avg Demand',
@@ -77,6 +77,13 @@ const CategoryIntelligence = () => {
   const [forecastLoading, setForecastLoading] = useState(true);
   const [featureInfluence, setFeatureInfluence] = useState(DEFAULT_FEATURES);
   const [featureFallback, setFeatureFallback] = useState(false);
+
+  const [discountPercent, setDiscountPercent] = useState(15);
+  const [elasticityMode, setElasticityMode] = useState('balanced');
+  const [includeSimExplanation, setIncludeSimExplanation] = useState(false);
+  const [simulationLoading, setSimulationLoading] = useState(false);
+  const [simulationError, setSimulationError] = useState('');
+  const [simulationResult, setSimulationResult] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,7 +155,34 @@ const CategoryIntelligence = () => {
     return () => {
       cancelled = true;
     };
+  }, [selectedCategory, INVENTORY, LEAD_TIMES]);
+
+  useEffect(() => {
+    setSimulationResult(null);
+    setSimulationError('');
   }, [selectedCategory]);
+
+  const runDiscountSimulation = async () => {
+    setSimulationLoading(true);
+    setSimulationError('');
+    try {
+      const payload = await simulateDiscount(selectedCategory, {
+        n_days: 30,
+        current_inventory: INVENTORY[selectedCategory] || 0,
+        lead_time_days: LEAD_TIMES[selectedCategory] || 7,
+        supplier_pack_size: 1,
+        discount_percent: Number(discountPercent),
+        elasticity_mode: elasticityMode,
+        include_explanation: includeSimExplanation,
+      });
+      setSimulationResult(payload);
+    } catch (err) {
+      setSimulationError(err?.response?.data?.message || 'Discount simulation failed.');
+      setSimulationResult(null);
+    } finally {
+      setSimulationLoading(false);
+    }
+  };
 
   const chartData = useMemo(() => {
     const forecast = Array.isArray(forecastResponse?.forecast) ? forecastResponse.forecast : [];
@@ -167,6 +201,23 @@ const CategoryIntelligence = () => {
       };
     });
   }, [forecastResponse]);
+
+  const simulatedChartData = useMemo(() => {
+    const sim = Array.isArray(simulationResult?.simulated?.forecast) ? simulationResult.simulated.forecast : [];
+    return sim.map((point) => ({
+      date: point?.date,
+      simulated_mean: Number(point?.predicted_mean || 0),
+    }));
+  }, [simulationResult]);
+
+  const chartRowsWithSimulation = useMemo(() => {
+    if (!simulatedChartData.length) return chartData;
+    const simMap = new Map(simulatedChartData.map((r) => [r.date, r.simulated_mean]));
+    return chartData.map((row) => ({
+      ...row,
+      simulated_mean: simMap.get(row.date) ?? null,
+    }));
+  }, [chartData, simulatedChartData]);
 
   const festivalMarkers = useMemo(() => {
     if (!chartData.length) return [];
@@ -285,12 +336,12 @@ const CategoryIntelligence = () => {
 
       <GlassCard
         title="Demand Forecast Visualization"
-        subtitle={`${selectedCategory} — horizon confidence, uncertainty and festival events`}
+        subtitle={`${selectedCategory} - horizon confidence, uncertainty and festival events`}
         icon={<TrendingUp size={18} />}
       >
         <div className="h-[390px]">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 10, right: 18, left: 6, bottom: 4 }}>
+            <AreaChart data={chartRowsWithSimulation} margin={{ top: 10, right: 18, left: 6, bottom: 4 }}>
               <defs>
                 <linearGradient id="confidenceBand" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#f472b6" stopOpacity={0.28} />
@@ -325,6 +376,7 @@ const CategoryIntelligence = () => {
               <Area type="monotone" dataKey="high_conf" stroke="url(#forecastGlow)" strokeWidth={3.4} fill="none" name="Forecast (Days 1-7)" dot={{ r: 2.5, fill: '#f472b6', strokeWidth: 0 }} activeDot={{ r: 5, fill: '#f472b6' }} connectNulls={false} />
               <Area type="monotone" dataKey="medium_conf" stroke="url(#forecastGlow)" strokeOpacity={0.7} strokeWidth={2.7} fill="none" name="Forecast (Days 8-14)" dot={false} connectNulls={false} />
               <Area type="monotone" dataKey="low_conf" stroke="url(#forecastGlow)" strokeOpacity={0.38} strokeWidth={2.2} fill="none" name="Forecast (Days 15+)" dot={false} connectNulls={false} />
+              <Area type="monotone" dataKey="simulated_mean" stroke="#22d3ee" strokeDasharray="6 4" strokeWidth={2.6} fill="none" name="Simulated (with discount)" dot={false} connectNulls={false} />
 
               {festivalMarkers.map((festival) => (
                 <ReferenceLine
@@ -340,23 +392,71 @@ const CategoryIntelligence = () => {
         </div>
 
         <div className="flex items-center flex-wrap gap-5 mt-4 px-2 text-xs text-[var(--text-3)]">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-0.5 bg-[#A78BFA]" />
-            <span>Days 1-7: high confidence</span>
+          <div className="flex items-center gap-2"><div className="w-6 h-0.5 bg-[#A78BFA]" /><span>Days 1-7: high confidence</span></div>
+          <div className="flex items-center gap-2"><div className="w-6 h-0.5 bg-[#A78BFA]/70" /><span>Days 8-14: medium confidence</span></div>
+          <div className="flex items-center gap-2"><div className="w-6 h-0.5 bg-[#A78BFA]/40" /><span>Days 15+: lower confidence</span></div>
+          <div className="flex items-center gap-2"><div className="h-3 w-[2px] bg-amber-400" /><span>Festival markers</span></div>
+          {simulationResult && <div className="flex items-center gap-2"><div className="w-6 h-0.5 border-t-2 border-dashed border-cyan-400" /><span>Discount simulation curve</span></div>}
+        </div>
+      </GlassCard>
+
+      <GlassCard
+        title="Discount Simulation"
+        subtitle="Test promotion impact on demand, risk and order recommendation"
+        icon={<FlaskConical size={18} />}
+      >
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+          <div className="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] p-4 lg:col-span-2">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Discount %</p>
+              <p className="text-sm font-bold text-[var(--text-1)]">{Number(discountPercent).toFixed(1)}%</p>
+            </div>
+            <input type="range" min={0} max={70} step={1} value={discountPercent} onChange={(e) => setDiscountPercent(Number(e.target.value))} className="w-full accent-cyan-500" />
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] text-[var(--text-3)] uppercase tracking-wider font-semibold">Elasticity Mode</label>
+                <div className="relative mt-1">
+                  <SlidersHorizontal size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-3)]" />
+                  <select value={elasticityMode} onChange={(e) => setElasticityMode(e.target.value)} className="themed-select w-full appearance-none rounded-xl pl-9 pr-8 py-2.5 text-sm">
+                    <option value="conservative">Conservative</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="aggressive">Aggressive</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-end">
+                <label className="inline-flex items-center gap-2 text-sm text-[var(--text-1)]">
+                  <input type="checkbox" checked={includeSimExplanation} onChange={(e) => setIncludeSimExplanation(e.target.checked)} className="accent-cyan-500" />
+                  Include Bedrock explanation
+                </label>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-0.5 bg-[#A78BFA]/70" />
-            <span>Days 8-14: medium confidence</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-0.5 bg-[#A78BFA]/40" />
-            <span>Days 15+: lower confidence</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-[2px] bg-amber-400" />
-            <span>Festival markers</span>
+          <div className="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] p-4">
+            <p className="text-[11px] text-[var(--text-3)] uppercase tracking-wider font-semibold mb-2">Scenario Summary</p>
+            <p className="text-sm text-[var(--text-2)]">Category: <span className="font-semibold text-[var(--text-1)]">{selectedCategory}</span></p>
+            <p className="text-sm text-[var(--text-2)]">Inventory: <span className="font-semibold text-[var(--text-1)]">{(INVENTORY[selectedCategory] || 0).toLocaleString()}</span></p>
+            <p className="text-sm text-[var(--text-2)]">Lead Time: <span className="font-semibold text-[var(--text-1)]">{LEAD_TIMES[selectedCategory] || 7} days</span></p>
+            <button onClick={runDiscountSimulation} disabled={simulationLoading} className="mt-4 w-full rounded-xl bg-cyan-500/20 border border-cyan-500/40 px-3 py-2 text-sm font-semibold text-cyan-300 hover:bg-cyan-500/25 disabled:opacity-60 disabled:cursor-not-allowed">
+              {simulationLoading ? 'Running Simulation...' : 'Run Simulation'}
+            </button>
           </div>
         </div>
+
+        {simulationError && <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-[var(--badge-danger-text)]">{simulationError}</div>}
+
+        {simulationResult && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-3"><p className="text-[10px] uppercase tracking-wider text-[var(--text-3)]">Demand Delta</p><p className="text-lg font-bold text-cyan-300">{Number(simulationResult?.delta?.forecast_total_delta || 0).toLocaleString()}</p></div>
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-3"><p className="text-[10px] uppercase tracking-wider text-[var(--text-3)]">Risk Delta</p><p className="text-lg font-bold text-amber-300">{Number(simulationResult?.delta?.risk_delta || 0).toFixed(3)}</p></div>
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-3"><p className="text-[10px] uppercase tracking-wider text-[var(--text-3)]">Order Delta</p><p className="text-lg font-bold text-fuchsia-300">{Number(simulationResult?.delta?.order_quantity_delta || 0).toLocaleString()}</p></div>
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-3"><p className="text-[10px] uppercase tracking-wider text-[var(--text-3)]">Reorder Pt Delta</p><p className="text-lg font-bold text-sky-300">{Number(simulationResult?.delta?.reorder_point_delta || 0).toLocaleString()}</p></div>
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-3"><p className="text-[10px] uppercase tracking-wider text-[var(--text-3)]">Supply Stability</p><p className="text-lg font-bold text-emerald-300">{Number(simulationResult?.supply_stability_index || 0).toFixed(1)}</p></div>
+            </div>
+            {simulationResult?.explanation && <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/10 p-3 text-sm text-[var(--text-1)]">{simulationResult.explanation}</div>}
+          </>
+        )}
       </GlassCard>
 
       <GlassCard
@@ -452,6 +552,4 @@ const CategoryIntelligence = () => {
 };
 
 export default CategoryIntelligence;
-
-
 

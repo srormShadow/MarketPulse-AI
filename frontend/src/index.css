@@ -178,6 +178,23 @@ textarea {
   transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease, box-shadow 220ms ease, transform 180ms ease;
 }
 
+.themed-select {
+  color: var(--text-1);
+  background-color: var(--panel-soft);
+  border-color: var(--border);
+}
+
+.themed-select option {
+  color: var(--text-1);
+  background-color: var(--panel);
+}
+
+.themed-select option:checked,
+.themed-select option:hover {
+  color: var(--text-1);
+  background-color: color-mix(in srgb, var(--brand-3) 22%, var(--panel));
+}
+
 :focus-visible {
   outline: 2px solid color-mix(in srgb, var(--brand-3) 75%, #ffffff 25%);
   outline-offset: 2px;

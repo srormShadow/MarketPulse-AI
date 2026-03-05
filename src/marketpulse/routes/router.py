@@ -7,6 +7,7 @@ from marketpulse.routes.forecast import router as forecast_router
 from marketpulse.routes.insights import router as insights_router
 from marketpulse.routes.recommendations import router as recommendations_router
 from marketpulse.routes.seed import router as seed_router
+from marketpulse.routes.simulation import router as simulation_router
 from marketpulse.routes.upload import router as upload_router
 
 router = APIRouter()
@@ -15,6 +16,7 @@ router.include_router(diagnostics_router)
 router.include_router(festivals_router)
 router.include_router(forecast_router)
 router.include_router(insights_router)
+router.include_router(simulation_router)
 router.include_router(recommendations_router)
 router.include_router(seed_router)
 

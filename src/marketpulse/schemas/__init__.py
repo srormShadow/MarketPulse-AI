@@ -28,6 +28,10 @@ from marketpulse.schemas.insights import (
     InsightRequest,
     InsightResponse,
 )
+from marketpulse.schemas.simulation import (
+    DiscountSimulationRequest,
+    DiscountSimulationResponse,
+)
 
 __all__ = [
     "CsvUploadRequest",
@@ -45,6 +49,8 @@ __all__ = [
     "BatchInsightItem",
     "BatchInsightRequest",
     "BatchInsightResponse",
+    "DiscountSimulationRequest",
+    "DiscountSimulationResponse",
     "BatchForecastRequest",
     "BatchForecastResponse",
     "ForecastDataPoint",
