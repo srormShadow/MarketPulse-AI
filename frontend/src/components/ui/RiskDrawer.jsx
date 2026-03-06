@@ -158,17 +158,17 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
   return createPortal(
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm transition-opacity duration-200"
+        className="fixed inset-0 z-40 bg-black/60"
         onClick={onClose}
       />
 
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6" onClick={onClose}>
+      <div className="fixed inset-0 z-50 p-2 sm:p-4" onClick={onClose}>
         <div
           role="dialog"
           aria-modal="true"
           aria-label={`${category} risk analysis`}
           onClick={(event) => event.stopPropagation()}
-          className="w-full max-w-4xl max-h-[88vh] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg)] shadow-2xl shadow-black/50 animate-fade-in-up"
+          className="mx-auto h-[96vh] w-[min(96vw,1400px)] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg)] shadow-2xl shadow-black/40"
         >
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border-soft)] bg-[var(--bg)]/95 px-5 py-4 backdrop-blur-md sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
@@ -189,7 +189,7 @@ const RiskDrawer = ({ category, rowData, onClose }) => {
             </button>
           </div>
 
-          <div className="max-h-[calc(88vh-74px)] space-y-6 overflow-y-auto px-5 py-5 sm:px-6 sm:py-6">
+          <div className="h-[calc(96vh-74px)] space-y-6 overflow-y-auto px-5 py-5 sm:px-6 sm:py-6">
             <div className="py-2 text-center">
               <div
                 className="mb-3 inline-flex h-24 w-24 items-center justify-center rounded-full border-4"
