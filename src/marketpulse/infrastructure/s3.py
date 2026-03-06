@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import io
+import json
+import logging
 import pickle
 import re
 from datetime import datetime, timezone
@@ -23,6 +27,8 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in lean test envs
             self.operation_name = operation_name
 
 from marketpulse.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _boto_kwargs() -> dict[str, str]:
@@ -51,6 +57,14 @@ def _s3_client():
 def _slugify(value: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower())
     return safe.strip("-") or "unknown"
+
+
+def _signature_for_payload(payload: bytes, signing_key: str) -> tuple[str, str]:
+    key = (signing_key or "").strip()
+    if key:
+        digest = hmac.new(key.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+        return "hmac-sha256", digest
+    return "sha256", hashlib.sha256(payload).hexdigest()
 
 
 def upload_csv(file: bytes, category: str, filename: str | None = None) -> str:
@@ -83,6 +97,9 @@ def save_model(model_object: Any, category: str) -> str:
     latest_key = f"{safe_category}/latest.pkl"
 
     payload = pickle.dumps(model_object)
+    algo, digest = _signature_for_payload(payload, settings.model_signing_key)
+    signature_blob = json.dumps({"algo": algo, "digest": digest}).encode("utf-8")
+
     client = _s3_client()
     client.put_object(
         Bucket=bucket,
@@ -96,6 +113,18 @@ def save_model(model_object: Any, category: str) -> str:
         Body=io.BytesIO(payload).getvalue(),
         ContentType="application/octet-stream",
     )
+    client.put_object(
+        Bucket=bucket,
+        Key=f"{version_key}.sig.json",
+        Body=signature_blob,
+        ContentType="application/json",
+    )
+    client.put_object(
+        Bucket=bucket,
+        Key=f"{latest_key}.sig.json",
+        Body=signature_blob,
+        ContentType="application/json",
+    )
     return f"s3://{bucket}/{latest_key}"
 
 
@@ -105,15 +134,51 @@ def load_model(category: str) -> Any | None:
     bucket = settings.s3_model_bucket
     safe_category = _slugify(category)
     latest_key = f"{safe_category}/latest.pkl"
+    signature_key = f"{latest_key}.sig.json"
+
+    # In production, do not deserialize untrusted pickle unless explicitly allowed.
+    if (
+        settings.environment.lower() in {"production", "prod"}
+        and not settings.model_signing_key.strip()
+        and not settings.allow_unsafe_model_pickle
+    ):
+        logger.warning("Skipping model load for %s: MODEL_SIGNING_KEY is required in production.", category)
+        return None
 
     try:
-        response = _s3_client().get_object(Bucket=bucket, Key=latest_key)
+        payload_response = _s3_client().get_object(Bucket=bucket, Key=latest_key)
     except ClientError as exc:
         if exc.response.get("Error", {}).get("Code") in {"NoSuchKey", "404"}:
             return None
         raise
 
-    return pickle.loads(response["Body"].read())
+    payload = payload_response["Body"].read()
+
+    signing_key = settings.model_signing_key.strip()
+    if signing_key:
+        try:
+            signature_response = _s3_client().get_object(Bucket=bucket, Key=signature_key)
+            signature_payload = json.loads(signature_response["Body"].read())
+            expected_algo = str(signature_payload.get("algo", ""))
+            expected_digest = str(signature_payload.get("digest", ""))
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in {"NoSuchKey", "404"}:
+                logger.warning("Model signature missing for %s; skipping load.", category)
+                return None
+            raise
+        except (json.JSONDecodeError, TypeError, ValueError):
+            logger.warning("Invalid model signature payload for %s; skipping load.", category)
+            return None
+
+        algo, digest = _signature_for_payload(payload, signing_key)
+        if expected_algo != algo or not hmac.compare_digest(expected_digest, digest):
+            logger.warning("Model signature verification failed for %s; skipping load.", category)
+            return None
+    elif not settings.allow_unsafe_model_pickle:
+        logger.warning("Unsafe pickle loading disabled for %s; skipping cached model load.", category)
+        return None
+
+    return pickle.loads(payload)
 
 
 def list_model_versions(category: str) -> list[dict[str, Any]]:
@@ -141,3 +206,4 @@ def list_model_versions(category: str) -> list[dict[str, Any]]:
 
     versions.sort(key=lambda item: item["timestamp"], reverse=True)
     return versions
+

@@ -6,7 +6,9 @@ Service code never imports SQLAlchemy or boto3 directly.
 
 from __future__ import annotations
 
-from datetime import date as date_type, datetime
+import hashlib
+import json
+from datetime import date as date_type, datetime, timedelta, timezone
 from typing import Any, Protocol, runtime_checkable
 
 import pandas as pd
@@ -14,9 +16,12 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from marketpulse.models.forecast_cache import ForecastCache
 from marketpulse.models.festival import Festival
+from marketpulse.models.recommendation_log import RecommendationLog
 from marketpulse.models.sales import Sales
 from marketpulse.models.sku import SKU
+from marketpulse.models.upload_event import UploadEvent
 
 
 @runtime_checkable
@@ -48,7 +53,15 @@ class DataRepository(Protocol):
 
     # --- Forecast Cache ---
     def save_forecast_cache(self, category: str, payload: dict[str, Any], generated_at: datetime) -> None: ...
-    def get_cached_forecast(self, category: str, n_days: int, current_inventory: int, lead_time_days: int, max_age_seconds: int = 3600) -> dict[str, Any] | None: ...
+    def get_cached_forecast(
+        self,
+        category: str,
+        n_days: int,
+        current_inventory: int,
+        lead_time_days: int,
+        supplier_pack_size: int = 1,
+        max_age_seconds: int = 3600,
+    ) -> dict[str, Any] | None: ...
     def get_category_last_upload_timestamp(self, category: str) -> datetime | None: ...
 
     # --- Transaction control ---
@@ -67,6 +80,25 @@ class SQLiteRepository:
     def __init__(self, session: Session) -> None:
         self._db = session
 
+    @staticmethod
+    def _forecast_signature(
+        n_days: int,
+        current_inventory: int,
+        lead_time_days: int,
+        supplier_pack_size: int,
+    ) -> str:
+        raw = f"{n_days}|{current_inventory}|{lead_time_days}|{supplier_pack_size}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _legacy_forecast_signature(
+        n_days: int,
+        current_inventory: int,
+        lead_time_days: int,
+    ) -> str:
+        raw = f"{n_days}|{current_inventory}|{lead_time_days}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
     # --- SKU / Inventory -------------------------------------------------
 
     def upsert_skus(self, records: list[dict]) -> int:
@@ -82,6 +114,10 @@ class SQLiteRepository:
             },
         )
         self._db.execute(upsert)
+        now_utc = datetime.now(timezone.utc)
+        categories = {str(rec.get("category", "")).strip() for rec in records if rec.get("category")}
+        if categories:
+            self._db.add_all([UploadEvent(category=category, uploaded_at=now_utc) for category in categories])
         return len(records)
 
     def get_skus_for_category(self, category: str) -> list[dict]:
@@ -133,6 +169,13 @@ class SQLiteRepository:
             set_={"units_sold": stmt.excluded.units_sold},
         )
         self._db.execute(upsert)
+        sku_ids = list({str(rec.get("sku_id", "")) for rec in records if rec.get("sku_id")})
+        if sku_ids:
+            categories = self._db.scalars(
+                select(SKU.category).where(SKU.sku_id.in_(sku_ids)).distinct()
+            ).all()
+            now_utc = datetime.now(timezone.utc)
+            self._db.add_all([UploadEvent(category=category, uploaded_at=now_utc) for category in categories])
         return len(records)
 
     def count_sales(self) -> int:
@@ -191,8 +234,16 @@ class SQLiteRepository:
     # --- Insights / Recommendations ------------------------------------
 
     def log_recommendation(self, category: str, risk_score: float, insight: str, generated_at: datetime) -> None:
-        # SQLite path currently does not persist recommendation logs.
-        return None
+        generated = generated_at.astimezone(timezone.utc) if generated_at.tzinfo else generated_at.replace(tzinfo=timezone.utc)
+        self._db.add(
+            RecommendationLog(
+                category=category,
+                timestamp=generated,
+                risk_score=round(float(risk_score), 3),
+                insight=insight,
+            )
+        )
+        self._db.commit()
 
     def get_cached_recommendation(
         self,
@@ -200,18 +251,68 @@ class SQLiteRepository:
         risk_score: float,
         max_age_seconds: int = 3600,
     ) -> dict[str, Any] | None:
-        # SQLite path currently does not persist recommendation logs.
-        return None
+        threshold = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        rounded_risk = round(float(risk_score), 3)
+        row = self._db.scalars(
+            select(RecommendationLog)
+            .where(RecommendationLog.category == category)
+            .where(RecommendationLog.risk_score == rounded_risk)
+            .where(RecommendationLog.timestamp >= threshold)
+            .order_by(RecommendationLog.timestamp.desc())
+            .limit(1)
+        ).first()
+        if row is None:
+            return None
+        return {
+            "category": row.category,
+            "insight": row.insight,
+            "generated_at": row.timestamp.astimezone(timezone.utc).isoformat(),
+            "risk_score": float(row.risk_score),
+        }
 
     def list_recent_recommendations(self, limit: int = 10) -> list[dict[str, Any]]:
-        # SQLite path currently does not persist recommendation logs.
-        return []
+        rows = self._db.scalars(
+            select(RecommendationLog)
+            .order_by(RecommendationLog.timestamp.desc())
+            .limit(max(1, int(limit)))
+        ).all()
+        return [
+            {
+                "category": row.category,
+                "timestamp": row.timestamp.astimezone(timezone.utc).isoformat(),
+                "risk_score": float(row.risk_score),
+                "insight": row.insight,
+            }
+            for row in rows
+        ]
 
     # --- Forecast Cache -------------------------------------------------
 
     def save_forecast_cache(self, category: str, payload: dict[str, Any], generated_at: datetime) -> None:
-        # SQLite path currently does not persist forecast cache.
-        return None
+        generated = generated_at.astimezone(timezone.utc) if generated_at.tzinfo else generated_at.replace(tzinfo=timezone.utc)
+        n_days = int(payload.get("n_days", 0))
+        current_inventory = int(payload.get("current_inventory", 0))
+        lead_time_days = int(payload.get("lead_time_days", 0))
+        supplier_pack_size = int(payload.get("supplier_pack_size", 1))
+        params_hash = self._forecast_signature(
+            n_days=n_days,
+            current_inventory=current_inventory,
+            lead_time_days=lead_time_days,
+            supplier_pack_size=supplier_pack_size,
+        )
+        self._db.add(
+            ForecastCache(
+                category=category,
+                generated_at=generated,
+                params_hash=params_hash,
+                n_days=n_days,
+                current_inventory=current_inventory,
+                lead_time_days=lead_time_days,
+                supplier_pack_size=supplier_pack_size,
+                payload_json=json.dumps(payload, default=str),
+            )
+        )
+        self._db.commit()
 
     def get_cached_forecast(
         self,
@@ -219,14 +320,51 @@ class SQLiteRepository:
         n_days: int,
         current_inventory: int,
         lead_time_days: int,
+        supplier_pack_size: int = 1,
         max_age_seconds: int = 3600,
     ) -> dict[str, Any] | None:
-        # SQLite path currently does not persist forecast cache.
+        threshold = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        params_hash = self._forecast_signature(
+            n_days=n_days,
+            current_inventory=current_inventory,
+            lead_time_days=lead_time_days,
+            supplier_pack_size=max(1, int(supplier_pack_size)),
+        )
+        acceptable_hashes = [params_hash]
+        if max(1, int(supplier_pack_size)) == 1:
+            acceptable_hashes.append(
+                self._legacy_forecast_signature(
+                    n_days=n_days,
+                    current_inventory=current_inventory,
+                    lead_time_days=lead_time_days,
+                )
+            )
+        rows = self._db.scalars(
+            select(ForecastCache)
+            .where(ForecastCache.category == category)
+            .where(ForecastCache.generated_at >= threshold)
+            .where(ForecastCache.params_hash.in_(acceptable_hashes))
+            .order_by(ForecastCache.generated_at.desc())
+            .limit(25)
+        ).all()
+        for row in rows:
+            try:
+                payload = json.loads(row.payload_json)
+            except json.JSONDecodeError:
+                continue
+            payload["generated_at"] = row.generated_at.astimezone(timezone.utc).isoformat()
+            return payload
         return None
 
     def get_category_last_upload_timestamp(self, category: str) -> datetime | None:
-        # SQLite path does not track last upload timestamp.
-        return None
+        latest = self._db.scalar(
+            select(func.max(UploadEvent.uploaded_at)).where(UploadEvent.category == category)
+        )
+        if latest is None:
+            return None
+        if latest.tzinfo:
+            return latest.astimezone(timezone.utc)
+        return latest.replace(tzinfo=timezone.utc)
 
     # --- Transaction control ---------------------------------------------
 

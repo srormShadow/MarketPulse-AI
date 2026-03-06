@@ -24,6 +24,15 @@ TABLES: dict[str, dict] = {
             {"AttributeName": "category", "AttributeType": "S"},
             {"AttributeName": "sku_id", "AttributeType": "S"},
         ],
+        "GlobalSecondaryIndexes": [
+            {
+                "IndexName": "sku_id-index",
+                "KeySchema": [
+                    {"AttributeName": "sku_id", "KeyType": "HASH"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+            }
+        ],
         "BillingMode": "PAY_PER_REQUEST",
     },
     "marketpulse_sales": {

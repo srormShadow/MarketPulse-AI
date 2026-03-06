@@ -54,7 +54,9 @@ def test_duplicate_sku_upsert_does_not_create_multiple_rows(client, db_session, 
 def test_festival_seed_is_idempotent(db_session):
     repo = SQLiteRepository(db_session)
     seed_festivals_if_empty(repo)
+    rows_after_first_seed = db_session.scalars(select(Festival)).all()
     seed_festivals_if_empty(repo)
 
-    rows = db_session.scalars(select(Festival)).all()
-    assert len(rows) == 15
+    rows_after_second_seed = db_session.scalars(select(Festival)).all()
+    assert len(rows_after_first_seed) > 0
+    assert len(rows_after_second_seed) == len(rows_after_first_seed)

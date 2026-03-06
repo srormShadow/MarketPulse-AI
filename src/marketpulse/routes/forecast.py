@@ -8,9 +8,8 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Path, Request, status
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
+from marketpulse.core.rate_limit import limiter
 from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
 
@@ -29,8 +28,6 @@ from marketpulse.services.forecasting import forecast_next_n_days, validate_fore
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["forecast"])
-
-limiter = Limiter(key_func=get_remote_address)
 
 
 def _serialize_forecast_response_payload(
@@ -56,6 +53,7 @@ def _serialize_forecast_response_payload(
             "predicted_mean": float(row["predicted_mean"]),
             "lower_95": float(row["lower_95"]),
             "upper_95": float(row["upper_95"]),
+            "festival_score": float(row.get("festival_score", 0.0)),
             "confidence_level": _confidence_level(index + 1),
         }
         for index, (_, row) in enumerate(forecast_df.iterrows())
@@ -147,6 +145,7 @@ def _compute_or_fetch_forecast_payload(
         n_days=n_days,
         current_inventory=current_inventory,
         lead_time_days=lead_time_days,
+        supplier_pack_size=supplier_pack_size,
         max_age_seconds=3600,
     )
     if cached:

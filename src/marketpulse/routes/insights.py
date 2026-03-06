@@ -8,9 +8,8 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Body, Depends, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
+from marketpulse.core.rate_limit import limiter
 from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
 from marketpulse.schemas.insights import (
@@ -26,8 +25,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["insights"])
-
-limiter = Limiter(key_func=get_remote_address)
 
 
 def _risk_score(decision_data: dict) -> float:
