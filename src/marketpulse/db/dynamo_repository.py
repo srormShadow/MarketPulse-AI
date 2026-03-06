@@ -11,7 +11,8 @@ from decimal import Decimal
 from typing import Any
 
 import pandas as pd
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
+from botocore.exceptions import ClientError
 
 from marketpulse.db.dynamo import get_dynamo_resource
 
@@ -23,7 +24,17 @@ def _to_decimal(value: float | int) -> Decimal:
     return Decimal(str(value))
 
 
-def _forecast_signature(n_days: int, current_inventory: int, lead_time_days: int) -> str:
+def _forecast_signature(
+    n_days: int,
+    current_inventory: int,
+    lead_time_days: int,
+    supplier_pack_size: int = 1,
+) -> str:
+    raw = f"{n_days}|{current_inventory}|{lead_time_days}|{supplier_pack_size}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _legacy_forecast_signature(n_days: int, current_inventory: int, lead_time_days: int) -> str:
     raw = f"{n_days}|{current_inventory}|{lead_time_days}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -66,6 +77,51 @@ class DynamoRepository:
             )
             items.extend(response.get("Items", []))
         return items
+
+    def _inventory_by_sku_ids(self, sku_ids: list[str], projection_expression: str | None = None) -> list[dict]:
+        """Fetch inventory rows by sku_id using GSI when available."""
+        if not sku_ids:
+            return []
+        table = self._table("marketpulse_inventory")
+        rows: list[dict] = []
+        for sku_id in set(sku_ids):
+            kwargs: dict[str, Any] = {
+                "IndexName": "sku_id-index",
+                "KeyConditionExpression": Key("sku_id").eq(sku_id),
+            }
+            if projection_expression:
+                kwargs["ProjectionExpression"] = projection_expression
+            use_scan_fallback = False
+            try:
+                response = table.query(**kwargs)
+            except ClientError as exc:
+                error_code = str(exc.response.get("Error", {}).get("Code", ""))
+                if error_code not in {"ValidationException", "ResourceNotFoundException"}:
+                    raise
+                # Fallback for environments where the GSI is not present yet.
+                use_scan_fallback = True
+                scan_kwargs: dict[str, Any] = {
+                    "FilterExpression": Attr("sku_id").eq(sku_id),
+                }
+                if projection_expression:
+                    scan_kwargs["ProjectionExpression"] = projection_expression
+                response = table.scan(**scan_kwargs)
+            rows.extend(response.get("Items", []))
+            while "LastEvaluatedKey" in response:
+                if use_scan_fallback:
+                    scan_page_kwargs = {
+                        "FilterExpression": Attr("sku_id").eq(sku_id),
+                        "ExclusiveStartKey": response["LastEvaluatedKey"],
+                    }
+                    if projection_expression:
+                        scan_page_kwargs["ProjectionExpression"] = projection_expression
+                    response = table.scan(**scan_page_kwargs)
+                else:
+                    page_kwargs = dict(kwargs)
+                    page_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+                    response = table.query(**page_kwargs)
+                rows.extend(response.get("Items", []))
+        return rows
 
     # ------------------------------------------------------------------
     # SKU / Inventory
@@ -122,12 +178,8 @@ class DynamoRepository:
         ]
 
     def sku_ids_exist(self, sku_ids: list[str]) -> set[str]:
-        target = set(sku_ids)
-        all_items = self._scan_all(
-            "marketpulse_inventory",
-            ProjectionExpression="sku_id",
-        )
-        return {it["sku_id"] for it in all_items if it["sku_id"] in target}
+        rows = self._inventory_by_sku_ids(sku_ids, projection_expression="sku_id")
+        return {str(row["sku_id"]) for row in rows if row.get("sku_id")}
 
     # ------------------------------------------------------------------
     # Sales
@@ -178,16 +230,14 @@ class DynamoRepository:
             )
 
     def _category_for_skus(self, sku_ids: list[str]) -> dict[str, str]:
-        target = set(sku_ids)
-        all_items = self._scan_all(
-            "marketpulse_inventory",
-            ProjectionExpression="sku_id, category",
-        )
-        return {
-            it["sku_id"]: it["category"]
-            for it in all_items
-            if it["sku_id"] in target
-        }
+        rows = self._inventory_by_sku_ids(sku_ids, projection_expression="sku_id, category")
+        mapping: dict[str, str] = {}
+        for row in rows:
+            sku_id = str(row.get("sku_id", ""))
+            category = str(row.get("category", ""))
+            if sku_id and category:
+                mapping[sku_id] = category
+        return mapping
 
     def count_sales(self) -> int:
         table = self._table("marketpulse_sales")
@@ -397,15 +447,22 @@ class DynamoRepository:
         n_days = int(payload.get("n_days", 0))
         current_inventory = int(payload.get("current_inventory", 0))
         lead_time_days = int(payload.get("lead_time_days", 0))
+        supplier_pack_size = int(payload.get("supplier_pack_size", 1))
 
         table.put_item(
             Item={
                 "category": category,
                 "generated_at": timestamp,
-                "params_hash": _forecast_signature(n_days, current_inventory, lead_time_days),
+                "params_hash": _forecast_signature(
+                    n_days=n_days,
+                    current_inventory=current_inventory,
+                    lead_time_days=lead_time_days,
+                    supplier_pack_size=supplier_pack_size,
+                ),
                 "n_days": n_days,
                 "current_inventory": current_inventory,
                 "lead_time_days": lead_time_days,
+                "supplier_pack_size": supplier_pack_size,
                 "payload_json": json.dumps(payload, default=str),
             }
         )
@@ -416,6 +473,7 @@ class DynamoRepository:
         n_days: int,
         current_inventory: int,
         lead_time_days: int,
+        supplier_pack_size: int = 1,
         max_age_seconds: int = 3600,
     ) -> dict[str, Any] | None:
         table = self._table("marketpulse_forecasts")
@@ -425,11 +483,26 @@ class DynamoRepository:
             Limit=25,
         )
 
-        target_hash = _forecast_signature(n_days, current_inventory, lead_time_days)
+        target_hash = _forecast_signature(
+            n_days=n_days,
+            current_inventory=current_inventory,
+            lead_time_days=lead_time_days,
+            supplier_pack_size=max(1, int(supplier_pack_size)),
+        )
+        acceptable_hashes = {target_hash}
+        if max(1, int(supplier_pack_size)) == 1:
+            acceptable_hashes.add(
+                _legacy_forecast_signature(
+                    n_days=n_days,
+                    current_inventory=current_inventory,
+                    lead_time_days=lead_time_days,
+                )
+            )
         threshold = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
 
         for item in response.get("Items", []):
-            if str(item.get("params_hash", "")) != target_hash:
+            params_hash = str(item.get("params_hash", ""))
+            if params_hash not in acceptable_hashes:
                 continue
             raw_ts = str(item.get("generated_at", ""))
             try:

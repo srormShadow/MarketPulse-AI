@@ -6,10 +6,9 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile, status
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from marketpulse.core.config import get_settings
+from marketpulse.core.rate_limit import limiter
 from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
 
@@ -24,8 +23,6 @@ from marketpulse.services.csv_ingestion import CsvIngestionError, ingest_csv
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["ingestion"])
-
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post(

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import GlassCard from '../components/ui/GlassCard';
 import { apiClient } from '../api/client';
-import { useInventory } from '../context/InventoryContext';
+import { useInventory } from '../context/inventoryStore';
 
 const freshnessTone = (stale) => (stale ? 'text-[var(--badge-danger-text)]' : 'text-[var(--badge-success-text)]');
 
@@ -176,7 +176,7 @@ const DataManagement = () => {
     return CATEGORIES.some(
       (category) => Number(inventoryDraft[category] || 0) !== Number(inventoryValues[category] || 0),
     );
-  }, [inventoryDraft, inventoryValues]);
+  }, [CATEGORIES, inventoryDraft, inventoryValues]);
 
   const handleApplyInventoryChanges = async () => {
     const normalized = {};

@@ -1,10 +1,9 @@
-import { createContext, useContext, useState } from 'react';
+import { useState } from 'react';
+import { InventoryContext } from './inventoryStore';
 
 const CATEGORIES = ['Snacks', 'Staples', 'Edible Oil'];
 const DEFAULT_INVENTORY = { Snacks: 2800, Staples: 5100, 'Edible Oil': 1900 };
 const DEFAULT_LEAD_TIMES = { Snacks: 5, Staples: 7, 'Edible Oil': 10 };
-
-const InventoryContext = createContext(null);
 
 export const InventoryProvider = ({ children }) => {
   const [inventory, setInventory] = useState(DEFAULT_INVENTORY);
@@ -17,8 +16,3 @@ export const InventoryProvider = ({ children }) => {
   );
 };
 
-export const useInventory = () => {
-  const ctx = useContext(InventoryContext);
-  if (!ctx) throw new Error('useInventory must be used within InventoryProvider');
-  return ctx;
-};

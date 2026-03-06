@@ -59,10 +59,13 @@ export default function PredictionSidebar({
     if (!isOpen || !selectedDate || !selectedStock) return;
 
     let cancelled = false;
-    setPredictionError(null);
-    setHistoricalError(null);
-    setIsPredictionLoading(true);
-    setIsHistoricalLoading(true);
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setPredictionError(null);
+      setHistoricalError(null);
+      setIsPredictionLoading(true);
+      setIsHistoricalLoading(true);
+    });
 
     apiClient
       .get('/predictions', { params: { date: selectedDate, stock: selectedStock } })

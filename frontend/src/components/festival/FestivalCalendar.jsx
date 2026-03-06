@@ -179,8 +179,12 @@ export default function FestivalCalendar({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setLoading(true);
+      setError(null);
+    });
 
     apiClient
       .get(`/festivals?month=${selectedMonth}&year=${selectedYear}`)

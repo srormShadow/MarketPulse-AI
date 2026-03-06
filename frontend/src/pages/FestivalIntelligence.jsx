@@ -6,7 +6,7 @@ import {
 import GlassCard from '../components/ui/GlassCard';
 import FestivalCalendar from '../components/festival/FestivalCalendar';
 import { apiClient } from '../api/client';
-import { useInventory } from '../context/InventoryContext';
+import { useInventory } from '../context/inventoryStore';
 
 const chartTheme = {
   grid: 'color-mix(in srgb, var(--text-3) 24%, transparent)',
@@ -86,7 +86,7 @@ const FestivalIntelligence = () => {
 
     loadData();
     return () => { cancelled = true; };
-  }, []);
+  }, [CATEGORIES, INVENTORY, LEAD_TIMES]);
 
   const upcoming60 = useMemo(() => {
     const now = startOfDay(new Date());
@@ -133,7 +133,7 @@ const FestivalIntelligence = () => {
       });
     });
     return rows;
-  }, [upcoming60, forecastRows]);
+  }, [INVENTORY, forecastRows, upcoming60]);
 
   const sensitivityData = useMemo(() => {
     if (diagnosticsAll?.categories) {
@@ -154,7 +154,7 @@ const FestivalIntelligence = () => {
       category,
       value: [0.19, 0.11, 0.25][idx],
     }));
-  }, [diagnosticsAll]);
+  }, [CATEGORIES, diagnosticsAll]);
 
   if (loading) {
     return <div className="text-sm text-[var(--text-3)]">Loading festival intelligence...</div>;

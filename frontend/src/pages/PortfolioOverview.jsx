@@ -12,7 +12,7 @@ import StatCard from '../components/ui/StatCard';
 import RiskDrawer from '../components/ui/RiskDrawer';
 import FestivalCalendar from '../components/festival/FestivalCalendar';
 import { apiClient } from '../api/client';
-import { useInventory } from '../context/InventoryContext';
+import { useInventory } from '../context/inventoryStore';
 
 const chartTheme = {
   grid: 'color-mix(in srgb, var(--text-3) 24%, transparent)',
@@ -104,7 +104,7 @@ const PortfolioOverview = () => {
     return () => {
       cancelled = true;
     };
-  }, [inventory]);
+  }, [categories, inventory, leadTimes]);
 
   const derived = useMemo(() => {
     const rows = forecastRows.map((row) => {
@@ -195,18 +195,18 @@ const PortfolioOverview = () => {
     if (derived.action.severity === 'urgent') {
       return {
         style: 'border-red-500/35 bg-red-500/10 text-[var(--badge-danger-text)]',
-        message: `⚠️ ${orderingCount} categories need ordering, ${criticalCount} critical — ${derived.action.criticalCategory} is critical`,
+        message: `Warning: ${orderingCount} categories need ordering, ${criticalCount} critical - ${derived.action.criticalCategory} is critical`,
       };
     }
     if (derived.action.severity === 'order') {
       return {
         style: 'border-amber-500/35 bg-amber-500/10 text-[var(--badge-warning-text)]',
-        message: `${orderingCount} categories need ordering, ${criticalCount} critical — prioritize ${derived.action.criticalCategory}`,
+        message: `${orderingCount} categories need ordering, ${criticalCount} critical - prioritize ${derived.action.criticalCategory}`,
       };
     }
     return {
       style: 'border-emerald-500/35 bg-emerald-500/10 text-[var(--badge-success-text)]',
-      message: '0 categories need ordering, 0 critical — all categories are MONITOR/MAINTAIN',
+      message: '0 categories need ordering, 0 critical - all categories are MONITOR/MAINTAIN',
     };
   }, [derived.action]);
 

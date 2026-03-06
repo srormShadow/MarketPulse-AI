@@ -4,13 +4,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from marketpulse.api.router import api_router
 from marketpulse.core.config import get_settings
 from marketpulse.core.logging import configure_logging
+from marketpulse.core.rate_limit import limiter
 from marketpulse.db.init_db import init_db
 from marketpulse.routes.router import router as ingestion_router
 
@@ -18,12 +17,15 @@ settings = get_settings()
 configure_logging(settings)
 logger = logging.getLogger(__name__)
 
-# ── Rate limiter (shared instance) ────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+
+def ensure_startup_security() -> None:
+    if settings.environment.lower() in {"production", "prod"} and not settings.api_key.strip():
+        raise RuntimeError("API_KEY must be configured when ENVIRONMENT=production.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ensure_startup_security()
     try:
         init_db()
     except Exception:
@@ -40,11 +42,9 @@ app = FastAPI(
     redoc_url="/redoc" if settings.environment != "production" else None,
 )
 
-# Attach rate limiter state
 app.state.limiter = limiter
 
 
-# ── Global exception handlers ─────────────────────────────────────────────
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(
@@ -62,7 +62,6 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# ── Configure CORS for React Frontend ─────────────────────────────────────
 _DEV_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",

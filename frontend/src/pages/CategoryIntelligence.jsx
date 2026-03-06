@@ -9,7 +9,7 @@ import {
 } from 'recharts';
 import GlassCard from '../components/ui/GlassCard';
 import { apiClient, simulateDiscount } from '../api/client';
-import { useInventory } from '../context/InventoryContext';
+import { useInventory } from '../context/inventoryStore';
 
 const chartTheme = {
   grid: 'color-mix(in srgb, var(--text-3) 24%, transparent)',
