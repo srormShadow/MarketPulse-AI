@@ -216,7 +216,6 @@ const DataManagement = () => {
       const formData = new FormData();
       formData.append('file', selectedFile);
       const response = await apiClient.post('/upload_csv', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (evt) => {
           if (evt.total) {
             const pct = Math.round((evt.loaded / evt.total) * 100);

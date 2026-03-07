@@ -203,13 +203,14 @@ cython_debug/
 # Claude Code session data (may contain pre-signed URLs / temp credentials)
 .claude/
 
-# Infrastructure configs with AWS account IDs
-ecs-task-definition.json
-ecs-permissions-policy.json
-tmp-taskdef-register.json
-amplify-rewrites.json
+# Runtime log files (never commit logs)
+*.log
+backend.*.log
 
-# Deployment artifacts
+# Scratch ECS task definitions generated during manual deploys
+tmp-taskdef*.json
+
+# Deployment artifacts (local zips only, use CI/CD for releases)
 *.zip
 
 # Database files
