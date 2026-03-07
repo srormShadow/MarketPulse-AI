@@ -1,4 +1,4 @@
-# MarketPulse AI
+﻿# MarketPulse AI
 
 AI-powered retail demand forecasting and inventory optimization for small and medium Indian retailers.
 
@@ -20,7 +20,7 @@ The system is designed for SME retail operators and planners who do not have dat
 
 ### What Amazon Bedrock adds
 - Converts model output + risk score + festival context into 3-sentence, actionable guidance for non-technical users.
-- Reduces interpretation friction: users get “what to do, why, and by when,” not only charts.
+- Reduces interpretation friction: users get "what to do, why, and by when," not only charts.
 - Enables auditable recommendation logs for operational review.
 
 ## 2. How AWS Services Are Used
@@ -39,11 +39,11 @@ The system is designed for SME retail operators and planners who do not have dat
 
 ### Quantified operational value (current implementation)
 - Festival-aware planning triggers risk-based action recommendations (`URGENT_ORDER`, `ORDER`, `MONITOR`, `MAINTAIN`) before stockouts.
-- With configured lead times in this project (`5`, `7`, `10` days), the system can flag reorder risk up to **5–10 days before festival demand windows**.
+- With configured lead times in this project (`5`, `7`, `10` days), the system can flag reorder risk up to **5â€“10 days before festival demand windows**.
 - Forecast and decision caching reduce repeated portfolio load latency (batch endpoint + cache hit path).
 
 ### Bedrock insight example (sample output)
-> “Snacks demand is at high risk of shortage before Diwali because forecasted sales are rising while current stock is below the reorder point. This is likely due to festival buying and a strong short-term demand trend in the next week. Place an urgent order for 1,400 units by October 28 to avoid stockouts during peak days.”
+> â€œSnacks demand is at high risk of shortage before Diwali because forecasted sales are rising while current stock is below the reorder point. This is likely due to festival buying and a strong short-term demand trend in the next week. Place an urgent order for 1,400 units by October 28 to avoid stockouts during peak days.â€
 
 ### Before vs after
 - **Before (manual ordering):**

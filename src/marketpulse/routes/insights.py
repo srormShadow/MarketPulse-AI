@@ -7,10 +7,9 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from fastapi import APIRouter, Body, Depends, Request
 
+from marketpulse.core.rate_limit import limiter
 from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
 from marketpulse.schemas.insights import (
@@ -26,8 +25,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["insights"])
-
-limiter = Limiter(key_func=get_remote_address)
 
 
 def _risk_score(decision_data: dict) -> float:
@@ -71,11 +68,12 @@ def _is_bedrock_cacheable_insight(insight: str) -> bool:
 @limiter.limit("5/minute")
 async def generate_batch_insights(
     request: Request,
-    body: BatchInsightRequest,
+    raw_body: dict | None = Body(default=None),
     repo: "DataRepository" = Depends(get_repo),
     _api_key: str = Depends(verify_api_key),
 ) -> BatchInsightResponse:
     """Generate Bedrock insights for multiple categories in one request."""
+    body = BatchInsightRequest.model_validate(raw_body or {})
     now = datetime.now(timezone.utc)
     results: list[InsightResponse] = []
 
@@ -136,11 +134,12 @@ async def generate_batch_insights(
 async def generate_insight_for_category(
     request: Request,
     category: str,
-    body: InsightRequest,
+    raw_body: dict | None = Body(default=None),
     repo: "DataRepository" = Depends(get_repo),
     _api_key: str = Depends(verify_api_key),
 ) -> InsightResponse:
     """Generate one Bedrock insight for a category with cache-aware behavior."""
+    body = InsightRequest.model_validate(raw_body or {})
     risk = _risk_score(body.decision_data)
     try:
         cached = repo.get_cached_recommendation(

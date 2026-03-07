@@ -1,5 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { LayoutDashboard, BrainCircuit, Database, Zap, CalendarDays } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  LayoutDashboard,
+  BrainCircuit,
+  Database,
+  CalendarDays,
+  Sparkles,
+  Sun,
+  Moon,
+  Search,
+  Bell,
+  Activity,
+  ChevronRight,
+  Menu,
+} from 'lucide-react';
 import PortfolioOverview from './pages/PortfolioOverview';
 import CategoryIntelligence from './pages/CategoryIntelligence';
 import DataManagement from './pages/DataManagement';
@@ -7,34 +20,40 @@ import FestivalIntelligence from './pages/FestivalIntelligence';
 import { API_BASE_URL, healthCheck } from './api/client';
 
 const tabs = [
-  { id: 'portfolio',    label: 'Portfolio Overview',    icon: LayoutDashboard },
-  { id: 'intelligence', label: 'Category Intelligence', icon: BrainCircuit },
-  { id: 'data',         label: 'Data Management',       icon: Database },
-  { id: 'festival',     label: 'Festival Intelligence', icon: CalendarDays },
+  { id: 'portfolio', label: 'Dashboard', sub: 'Portfolio Overview', icon: LayoutDashboard },
+  { id: 'intelligence', label: 'Intelligence', sub: 'Category Analytics', icon: BrainCircuit },
+  { id: 'data', label: 'Data Hub', sub: 'Data Management', icon: Database },
+  { id: 'festival', label: 'Festivals', sub: 'Festival Intelligence', icon: CalendarDays },
 ];
+
+const getInitialTheme = () => {
+  const persisted = localStorage.getItem('marketpulse-theme');
+  if (persisted === 'light' || persisted === 'dark') return persisted;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+};
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('portfolio');
   const [backendReachable, setBackendReachable] = useState(true);
   const [connectionChecked, setConnectionChecked] = useState(false);
+  const [theme, setTheme] = useState(getInitialTheme);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('marketpulse-theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     let cancelled = false;
-
     const runHealthCheck = async () => {
       try {
         await healthCheck();
-        if (!cancelled) {
-          setBackendReachable(true);
-        }
+        if (!cancelled) setBackendReachable(true);
       } catch {
-        if (!cancelled) {
-          setBackendReachable(false);
-        }
+        if (!cancelled) setBackendReachable(false);
       } finally {
-        if (!cancelled) {
-          setConnectionChecked(true);
-        }
+        if (!cancelled) setConnectionChecked(true);
       }
     };
 
@@ -46,93 +65,145 @@ const App = () => {
 
   const renderPage = () => {
     switch (activeTab) {
-      case 'portfolio':    return <PortfolioOverview />;
+      case 'portfolio': return <PortfolioOverview />;
       case 'intelligence': return <CategoryIntelligence />;
-      case 'data':         return <DataManagement />;
-      case 'festival':     return <FestivalIntelligence />;
-      default:             return null;
+      case 'data': return <DataManagement />;
+      case 'festival': return <FestivalIntelligence />;
+      default: return null;
     }
   };
 
+  const activeTabMeta = useMemo(() => tabs.find((tab) => tab.id === activeTab), [activeTab]);
+
   return (
-    <div className="min-h-screen bg-[#0B1220] text-[#E2E8F0] font-sans selection:bg-blue-500/30">
-      {/* Header */}
-      <header className="max-w-[1400px] mx-auto px-6 pt-8 pb-6">
-        {connectionChecked && !backendReachable && (
-          <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-200 text-sm">
-            Backend is currently unreachable. Check API Gateway/ECS health and
-            <span className="ml-1 font-mono text-amber-100">
-              VITE_API_BASE_URL={API_BASE_URL || "(not set)"}
-            </span>.
-          </div>
-        )}
-        <div className="flex justify-between items-end">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-blue-500/10 rounded-xl border border-blue-500/20">
-              <Zap size={26} className="text-blue-400" />
-            </div>
+    <div className="app-shell theme-transition">
+      <div className="shell-grid">
+        <aside className="side-rail px-5 py-6 text-white">
+          <div className="mb-6 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 font-bold">MP</div>
             <div>
-              <h1 className="text-3xl font-extrabold text-[#F1F5F9] tracking-tight">
-                MarketPulse <span className="text-blue-500">AI</span>
-              </h1>
-              <p className="text-[#94A3B8] mt-0.5 font-medium text-sm">
-                Retail Forecasting & Inventory Intelligence
-              </p>
+              <p className="text-xs tracking-[0.16em] text-white/80">MARKETPULSE</p>
+              <h1 className="text-lg font-bold leading-tight">Analytics AI</h1>
             </div>
           </div>
-          <div className="hidden md:flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <p className="text-[10px] uppercase font-bold tracking-[0.15em] text-emerald-400/80">
-                Operational
-              </p>
-            </div>
-            <div className="h-4 w-px bg-white/10 mx-1"></div>
-            <p className="text-xs text-[#475569] font-mono">
-              {new Date().toISOString().slice(0, 16).replace('T', ' ')}
-            </p>
+
+          <div className="mb-6 h-px bg-white/30" />
+
+          <nav className="space-y-2">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`group w-full rounded-xl px-3 py-3 text-left transition-all cursor-pointer focus-visible:outline-white/80 ${
+                    isActive
+                      ? 'bg-black/30 ring-1 ring-white/35 shadow-[0_14px_28px_rgba(10,6,26,0.38)]'
+                      : 'hover:bg-black/18'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon size={16} className={isActive ? 'text-white' : 'text-white/75 group-hover:text-white'} />
+                    <div>
+                      <p className="text-sm font-semibold leading-tight">{tab.label}</p>
+                      <p className="text-[11px] text-white/78">{tab.sub}</p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="absolute bottom-6 left-5 right-5 rounded-2xl bg-black/28 p-3 ring-1 ring-white/28 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-white/80">System</p>
+            <p className="mt-1 text-sm font-semibold">Retail Forecasting Active</p>
+            <p className="mt-1 text-xs text-white/78">Live intelligence and inventory optimization.</p>
           </div>
-        </div>
-        <div className="h-[2px] animate-gradient-line mt-6 rounded-full"></div>
-      </header>
+        </aside>
 
-      {/* Main */}
-      <main className="max-w-[1400px] mx-auto px-6 pb-20">
-        {/* Navigation */}
-        <nav className="flex gap-2 mb-10 overflow-x-auto pb-2">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`
-                  flex items-center gap-2 whitespace-nowrap px-5 py-2.5
-                  rounded-xl text-sm font-semibold transition-all duration-300 cursor-pointer
-                  ${isActive
-                    ? 'bg-blue-600 text-white shadow-[0_4px_20px_rgba(37,99,235,0.35)]'
-                    : 'bg-[#111827] text-[#94A3B8] hover:bg-[#1F2937] hover:text-[#E2E8F0] border border-white/5'
-                  }
-                `}
-              >
-                <Icon size={16} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+        <section className="main-panel min-h-[calc(100vh-40px)]">
+          <header className="top-command mb-4 px-4 py-3 sm:px-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  onClick={() => setMobileNavOpen((v) => !v)}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-2 text-[var(--text-2)] lg:hidden"
+                >
+                  <Menu size={15} />
+                </button>
+                <div className="hidden md:flex items-center gap-2 rounded-full bg-[#0b1220] text-white px-3 py-1.5">
+                  <Sparkles size={14} className="text-sky-300" />
+                  <span className="text-xs font-semibold">MarketPulse Workspace</span>
+                  <ChevronRight size={12} className="text-white/60" />
+                </div>
+                <h2 className="text-primary font-[var(--font-display)] text-xl font-semibold truncate">{activeTabMeta?.sub}</h2>
+              </div>
 
-        {/* Page Content */}
-        <div key={activeTab} className="animate-fade-in-up">
-          {renderPage()}
-        </div>
-      </main>
+              <div className="flex items-center gap-2">
+                <button className="hidden sm:flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--panel)] text-[var(--text-2)] hover:text-[var(--text-1)]">
+                  <Search size={15} />
+                </button>
+                <button className="hidden sm:flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--panel)] text-[var(--text-2)] hover:text-[var(--text-1)]">
+                  <Bell size={15} />
+                </button>
+
+                <button
+                  onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+                  className="relative h-10 w-[82px] rounded-full border border-[var(--border)] bg-[var(--panel-soft)] p-1 cursor-pointer"
+                  aria-label="Toggle theme"
+                >
+                  <span className={`absolute top-1 h-8 w-8 rounded-full bg-gradient-to-br from-[var(--brand-1)] to-[var(--brand-2)] text-white shadow-md flex items-center justify-center transition-all duration-300 ${theme === 'dark' ? 'left-[42px]' : 'left-1'}`}>
+                    {theme === 'dark' ? <Moon size={14} /> : <Sun size={14} />}
+                  </span>
+                </button>
+
+                {connectionChecked && (
+                  <div className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${backendReachable ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' : 'border-red-500/30 bg-red-500/10 text-red-500'}`}>
+                    <span className="inline-flex items-center gap-1.5"><Activity size={12} />{backendReachable ? 'Live' : 'Offline'}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {connectionChecked && !backendReachable && (
+              <div className="mt-3 rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-500">
+                Unable to reach backend. Verify <span className="font-mono">VITE_API_BASE_URL={API_BASE_URL || '(not set)'}</span>
+              </div>
+            )}
+
+            {mobileNavOpen && (
+              <div className="mt-3 grid grid-cols-1 gap-2 lg:hidden">
+                {tabs.map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => {
+                        setActiveTab(tab.id);
+                        setMobileNavOpen(false);
+                      }}
+                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${isActive ? 'border-sky-500/40 bg-sky-500/10 text-primary' : 'border-[var(--border)] bg-[var(--panel)] text-[var(--text-2)]'}`}
+                    >
+                      <Icon size={14} />
+                      {tab.sub}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </header>
+
+          <main key={activeTab} className="animate-fade-in-up px-1 pb-4 sm:px-2">
+            {renderPage()}
+          </main>
+        </section>
+      </div>
     </div>
   );
 };
 
 export default App;
+
+

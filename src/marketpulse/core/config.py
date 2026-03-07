@@ -1,5 +1,6 @@
 ﻿from functools import lru_cache
 
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,8 +26,17 @@ class Settings(BaseSettings):
     mock_bedrock: bool = False
     bedrock_model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
     bedrock_inference_profile_id: str | None = None
-    s3_data_bucket: str = "marketpulse-data"
-    s3_model_bucket: str = "marketpulse-models"
+    s3_data_bucket: str = Field(
+        default="marketpulse-data",
+        validation_alias=AliasChoices("S3_DATA_BUCKET"),
+    )
+    # Accept both singular/plural env names to stay compatible with existing ECS task defs.
+    s3_model_bucket: str = Field(
+        default="marketpulse-models",
+        validation_alias=AliasChoices("S3_MODEL_BUCKET", "S3_MODELS_BUCKET"),
+    )
+    model_signing_key: str = ""
+    allow_unsafe_model_pickle: bool = False
 
     # CORS — comma-separated allowed origins (empty = dev defaults only)
     frontend_url: str = ""
@@ -38,6 +48,17 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     log_format: str = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def _normalize_debug_value(cls, value):
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"release", "prod", "production", "0", "false", "no", "off", ""}:
+                return False
+            if normalized in {"1", "true", "yes", "on", "debug", "dev", "development"}:
+                return True
+        return value
 
     model_config = SettingsConfigDict(
         env_file=".env",

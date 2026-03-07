@@ -12,14 +12,23 @@ import StatCard from '../components/ui/StatCard';
 import RiskDrawer from '../components/ui/RiskDrawer';
 import FestivalCalendar from '../components/festival/FestivalCalendar';
 import { apiClient } from '../api/client';
-import { useInventory } from '../context/InventoryContext';
+import { useInventory } from '../context/inventoryStore';
+
+const chartTheme = {
+  grid: 'color-mix(in srgb, var(--text-3) 24%, transparent)',
+  axis: 'color-mix(in srgb, var(--text-3) 40%, transparent)',
+  tick: 'var(--text-3)',
+  label: 'var(--text-1)',
+  cursor: 'color-mix(in srgb, var(--brand-2) 10%, transparent)',
+};
 
 const tooltipStyle = {
-  backgroundColor: '#1E293B',
-  border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: 8,
-  color: '#E2E8F0',
+  backgroundColor: 'var(--panel)',
+  border: '1px solid var(--border)',
+  borderRadius: 10,
+  color: 'var(--text-1)',
   fontSize: 12,
+  boxShadow: '0 12px 24px rgba(5, 3, 14, 0.2)',
 };
 
 const riskColor = (score01) => {
@@ -28,11 +37,11 @@ const riskColor = (score01) => {
 };
 
 const actionStyleMap = {
-  URGENT_ORDER: 'bg-red-500/20 text-red-200 border-red-500/40',
-  ORDER: 'bg-amber-500/20 text-amber-200 border-amber-500/40',
-  MONITOR: 'bg-blue-500/20 text-blue-200 border-blue-500/40',
-  MAINTAIN: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40',
-  INSUFFICIENT_DATA: 'bg-slate-500/20 text-slate-200 border-slate-500/40',
+  URGENT_ORDER: 'bg-red-500/16 text-[var(--badge-danger-text)] border-red-500/40',
+  ORDER: 'bg-amber-500/16 text-[var(--badge-warning-text)] border-amber-500/40',
+  MONITOR: 'bg-blue-500/16 text-[var(--badge-info-text)] border-blue-500/40',
+  MAINTAIN: 'bg-emerald-500/16 text-[var(--badge-success-text)] border-emerald-500/40',
+  INSUFFICIENT_DATA: 'bg-slate-500/16 text-[var(--badge-neutral-text)] border-slate-500/40',
 };
 
 const inventoryStatus = (gap, action) => {
@@ -42,9 +51,9 @@ const inventoryStatus = (gap, action) => {
 };
 
 const statusStyles = {
-  healthy: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  warning: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  critical: 'bg-red-500/10 text-red-400 border-red-500/20',
+  healthy: 'bg-emerald-500/10 text-[var(--badge-success-text)] border-emerald-500/20',
+  warning: 'bg-amber-500/10 text-[var(--badge-warning-text)] border-amber-500/20',
+  critical: 'bg-red-500/10 text-[var(--badge-danger-text)] border-red-500/20',
 };
 
 const StatusBadge = ({ status }) => (
@@ -95,7 +104,7 @@ const PortfolioOverview = () => {
     return () => {
       cancelled = true;
     };
-  }, [inventory]);
+  }, [categories, inventory, leadTimes]);
 
   const derived = useMemo(() => {
     const rows = forecastRows.map((row) => {
@@ -185,30 +194,30 @@ const PortfolioOverview = () => {
     const criticalCount = derived.action.urgentCount;
     if (derived.action.severity === 'urgent') {
       return {
-        style: 'border-red-500/35 bg-red-500/10 text-red-100',
-        message: `⚠️ ${orderingCount} categories need ordering, ${criticalCount} critical — ${derived.action.criticalCategory} is critical`,
+        style: 'border-red-500/35 bg-red-500/10 text-[var(--badge-danger-text)]',
+        message: `Warning: ${orderingCount} categories need ordering, ${criticalCount} critical - ${derived.action.criticalCategory} is critical`,
       };
     }
     if (derived.action.severity === 'order') {
       return {
-        style: 'border-amber-500/35 bg-amber-500/10 text-amber-100',
-        message: `${orderingCount} categories need ordering, ${criticalCount} critical — prioritize ${derived.action.criticalCategory}`,
+        style: 'border-amber-500/35 bg-amber-500/10 text-[var(--badge-warning-text)]',
+        message: `${orderingCount} categories need ordering, ${criticalCount} critical - prioritize ${derived.action.criticalCategory}`,
       };
     }
     return {
-      style: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-100',
-      message: '0 categories need ordering, 0 critical — all categories are MONITOR/MAINTAIN',
+      style: 'border-emerald-500/35 bg-emerald-500/10 text-[var(--badge-success-text)]',
+      message: '0 categories need ordering, 0 critical - all categories are MONITOR/MAINTAIN',
     };
   }, [derived.action]);
 
   if (loading) {
-    return <div className="text-sm text-[#94A3B8]">Loading portfolio data...</div>;
+    return <div className="text-sm text-[var(--text-3)]">Loading portfolio data...</div>;
   }
 
   return (
     <div className="space-y-6">
       {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-[var(--badge-danger-text)]">
           {error}
         </div>
       )}
@@ -263,7 +272,7 @@ const PortfolioOverview = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[#64748B] text-xs uppercase tracking-wider border-b border-white/5">
+              <tr className="text-left text-[var(--text-3)] text-xs uppercase tracking-wider border-b border-[var(--border-soft)]">
                 <th className="pb-3 pr-6 font-semibold">Category</th>
                 <th className="pb-3 pr-6 font-semibold">Recommended Action</th>
                 <th className="pb-3 pr-6 font-semibold">Status</th>
@@ -282,18 +291,18 @@ const PortfolioOverview = () => {
                   <tr
                     key={row.category}
                     onClick={() => setDrawerRow(row)}
-                    className="border-b border-white/5 transition-colors cursor-pointer hover:bg-white/[0.04] group"
+                    className="border-b border-[var(--border-soft)] transition-colors cursor-pointer hover:bg-white/[0.04] group"
                   >
-                    <td className="py-4 pr-6 font-semibold text-[#F1F5F9]">{row.category}</td>
+                    <td className="py-4 pr-6 font-semibold text-[var(--text-1)]">{row.category}</td>
                     <td className="py-4 pr-6">
                       <ActionBadge action={row.action} />
                     </td>
                     <td className="py-4 pr-6"><StatusBadge status={row.status} /></td>
-                    <td className="py-4 pr-6 text-right font-mono text-[#E2E8F0]">{row.currentStock.toLocaleString()}</td>
-                    <td className="py-4 pr-6 text-right font-mono text-[#94A3B8]">{Math.round(row.requiredStock).toLocaleString()}</td>
-                    <td className="py-4 pr-6 text-right font-mono text-[#94A3B8]">{Math.round(row.safetyStock).toLocaleString()}</td>
-                    <td className="py-4 pr-6 text-right font-mono text-[#94A3B8]">{Math.round(row.reorderPoint).toLocaleString()}</td>
-                    <td className="py-4 pr-6 text-right font-mono text-[#94A3B8]">{row.leadTime}d</td>
+                    <td className="py-4 pr-6 text-right font-mono text-[var(--text-1)]">{row.currentStock.toLocaleString()}</td>
+                    <td className="py-4 pr-6 text-right font-mono text-[var(--text-3)]">{Math.round(row.requiredStock).toLocaleString()}</td>
+                    <td className="py-4 pr-6 text-right font-mono text-[var(--text-3)]">{Math.round(row.safetyStock).toLocaleString()}</td>
+                    <td className="py-4 pr-6 text-right font-mono text-[var(--text-3)]">{Math.round(row.reorderPoint).toLocaleString()}</td>
+                    <td className="py-4 pr-6 text-right font-mono text-[var(--text-3)]">{row.leadTime}d</td>
                     <td className="py-4 text-right">
                       <div className="flex items-center gap-2 justify-end">
                         <div className="w-16 h-1.5 rounded-full bg-white/5 overflow-hidden">
@@ -308,7 +317,7 @@ const PortfolioOverview = () => {
                       </div>
                     </td>
                     <td className="py-4 pl-2 w-8">
-                      <ChevronRight size={14} className="text-[#475569] group-hover:text-[#94A3B8] transition-colors" />
+                      <ChevronRight size={14} className="text-[var(--text-3)] group-hover:text-[var(--text-3)] transition-colors" />
                     </td>
                   </tr>
                 );
@@ -331,27 +340,27 @@ const PortfolioOverview = () => {
               <BarChart
                 data={riskDistributionData}
                 layout="vertical"
-                margin={{ top: 5, right: 30, left: 70, bottom: 5 }}
+                margin={{ top: 10, right: 26, left: 64, bottom: 10 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                <CartesianGrid strokeDasharray="4 8" stroke={chartTheme.grid} horizontal={false} />
                 <XAxis
                   type="number"
                   domain={[0, 100]}
-                  tick={{ fill: '#94A3B8', fontSize: 12 }}
-                  axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                  tick={{ fill: chartTheme.tick, fontSize: 12 }}
+                  axisLine={{ stroke: chartTheme.axis }}
                   tickLine={false}
                   tickFormatter={(v) => `${v}%`}
                 />
                 <YAxis
                   dataKey="category"
                   type="category"
-                  tick={{ fill: '#E2E8F0', fontSize: 13, fontWeight: 500 }}
+                  tick={{ fill: chartTheme.label, fontSize: 12, fontWeight: 600 }}
                   axisLine={false}
                   tickLine={false}
-                  width={65}
+                  width={72}
                 />
-                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: '#F1F5F9' }} labelStyle={{ color: '#F1F5F9' }} cursor={{ fill: 'rgba(255,255,255,0.02)' }} formatter={(v) => [`${v}%`, 'Risk Score']} />
-                <Bar dataKey="riskScore" name="Risk Score" radius={[0, 6, 6, 0]} barSize={22}>
+                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: 'var(--text-1)' }} labelStyle={{ color: 'var(--text-1)', fontWeight: 700 }} cursor={{ fill: chartTheme.cursor }} formatter={(v) => [`${v}%`, 'Risk Score']} />
+                <Bar dataKey="riskScore" name="Risk Score" radius={[0, 10, 10, 0]} barSize={20}>
                   {riskDistributionData.map((entry, index) => (
                     <Cell key={index} fill={entry.fill} />
                   ))}
@@ -368,23 +377,33 @@ const PortfolioOverview = () => {
         >
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={inventoryGapData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <BarChart data={inventoryGapData} margin={{ top: 10, right: 22, left: 10, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="4 8" stroke={chartTheme.grid} />
                 <XAxis
                   dataKey="category"
-                  tick={{ fill: '#E2E8F0', fontSize: 12 }}
-                  axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                  tick={{ fill: chartTheme.label, fontSize: 12 }}
+                  axisLine={{ stroke: chartTheme.axis }}
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fill: '#94A3B8', fontSize: 12 }}
-                  axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                  tick={{ fill: chartTheme.tick, fontSize: 12 }}
+                  axisLine={{ stroke: chartTheme.axis }}
                   tickLine={false}
                 />
-                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: '#F1F5F9' }} labelStyle={{ color: '#F1F5F9' }} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
-                <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} iconType="circle" iconSize={8} />
-                <Bar dataKey="current" name="Current Stock" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={28} />
-                <Bar dataKey="required" name="Required Stock" fill="rgba(139,92,246,0.5)" radius={[4, 4, 0, 0]} barSize={28} />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: 'var(--text-1)' }} labelStyle={{ color: 'var(--text-1)', fontWeight: 700 }} cursor={{ fill: chartTheme.cursor }} />
+                <Legend wrapperStyle={{ fontSize: 12, color: 'var(--text-3)' }} iconType="circle" iconSize={8} />
+                <Bar dataKey="current" name="Current Stock" fill="url(#gapBarPrimary)" radius={[8, 8, 0, 0]} barSize={24} />
+                <Bar dataKey="required" name="Required Stock" fill="url(#gapBarSecondary)" radius={[8, 8, 0, 0]} barSize={24} />
+                <defs>
+                  <linearGradient id="gapBarPrimary" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.95} />
+                    <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.6} />
+                  </linearGradient>
+                  <linearGradient id="gapBarSecondary" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f472b6" stopOpacity={0.9} />
+                    <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.45} />
+                  </linearGradient>
+                </defs>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -403,3 +422,7 @@ const PortfolioOverview = () => {
 };
 
 export default PortfolioOverview;
+
+
+
+

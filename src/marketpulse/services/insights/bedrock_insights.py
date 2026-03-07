@@ -133,3 +133,70 @@ Festival Context: {_compact(festival_context)}
     except (ClientError, BotoCoreError, ValueError, KeyError, json.JSONDecodeError):
         logger.exception("Bedrock insight generation failed for category=%s", category)
         return _fallback_message(category, decision_data)
+
+
+def generate_discount_simulation_explanation(
+    category: str,
+    discount_percent: float,
+    elasticity_mode: str,
+    baseline_decision: Mapping[str, Any],
+    simulated_decision: Mapping[str, Any],
+    delta: Mapping[str, Any],
+    simulation_meta: Mapping[str, Any],
+) -> str:
+    """Generate concise explanation for discount simulation results."""
+    settings = get_settings()
+    fallback = (
+        f"A {discount_percent:.1f}% discount for {category} increases projected demand and changes inventory risk. "
+        f"Expected order quantity shifts by {int(delta.get('order_quantity_delta', 0))} units with risk delta "
+        f"{float(delta.get('risk_delta', 0.0)):+.3f}. "
+        "Use this scenario to align purchase timing and supplier capacity before launching the promotion."
+    )
+    if settings.mock_bedrock:
+        return fallback
+
+    payload = {
+        "anthropic_version": ANTHROPIC_VERSION,
+        "max_tokens": 180,
+        "temperature": 0.2,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "You are a retail operations analyst. Write exactly 3 concise sentences. "
+                            "Sentence 1: impact of discount on demand and risk. "
+                            "Sentence 2: operational implication for inventory and lead time. "
+                            "Sentence 3: practical action recommendation.\n\n"
+                            f"Category: {category}\n"
+                            f"Discount Percent: {discount_percent}\n"
+                            f"Elasticity Mode: {_compact(elasticity_mode)}\n"
+                            f"Baseline Decision: {_compact(dict(baseline_decision))}\n"
+                            f"Simulated Decision: {_compact(dict(simulated_decision))}\n"
+                            f"Delta: {_compact(dict(delta))}\n"
+                            f"Simulation Meta: {_compact(dict(simulation_meta))}\n"
+                        ),
+                    }
+                ],
+            }
+        ],
+    }
+
+    model_id = settings.bedrock_inference_profile_id or settings.bedrock_model_id
+    try:
+        response = _bedrock_client().invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(payload),
+        )
+        body = json.loads(response["body"].read())
+        content = body.get("content", [])
+        text_parts = [item.get("text", "") for item in content if item.get("type") == "text"]
+        explanation = " ".join(part.strip() for part in text_parts if part.strip()).strip()
+        return explanation or fallback
+    except (ClientError, BotoCoreError, ValueError, KeyError, json.JSONDecodeError):
+        logger.exception("Bedrock simulation explanation failed for category=%s", category)
+        return fallback
