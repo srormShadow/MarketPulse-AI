@@ -80,11 +80,20 @@ const DataManagement = () => {
   const [isApplying, setIsApplying] = useState(false);
   const [applyMessage, setApplyMessage] = useState('');
   const [applyError, setApplyError] = useState('');
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStatus, setUploadStatus] = useState(null);
-  const [uploadError, setUploadError] = useState('');
+  // Step-1: SKU Master upload state
+  const [skuFile, setSkuFile] = useState(null);
+  const [skuUploading, setSkuUploading] = useState(false);
+  const [skuProgress, setSkuProgress] = useState(0);
+  const [skuStatus, setSkuStatus] = useState(null);   // 'success' | 'error' | null
+  const [skuError, setSkuError] = useState('');
+  const [skuDragOver, setSkuDragOver] = useState(false);
+  // Step-2: Sales Data upload state
+  const [salesFile, setSalesFile] = useState(null);
+  const [salesUploading, setSalesUploading] = useState(false);
+  const [salesProgress, setSalesProgress] = useState(0);
+  const [salesStatus, setSalesStatus] = useState(null); // 'success' | 'error' | null
+  const [salesError, setSalesError] = useState('');
+  const [salesDragOver, setSalesDragOver] = useState(false);
   const [uploadSummary, setUploadSummary] = useState(null);
   const [freshnessRows, setFreshnessRows] = useState([]);
   const [modelRows, setModelRows] = useState([]);
@@ -163,14 +172,65 @@ const DataManagement = () => {
 
   const anyStaleData = useMemo(() => freshnessRows.some((row) => row.stale), [freshnessRows]);
 
-  const onFileSelected = async (file) => {
+  // Generic upload helper — used by both steps
+  const uploadFile = async (file, {
+    setUploading, setProgress, setStatus, setError, onSuccess,
+  }) => {
     if (!file) return;
-    setSelectedFile(file);
-    setUploadStatus(null);
-    setUploadError('');
-    const summary = await parseCsvSummary(file);
-    setUploadSummary(summary);
+    setUploading(true);
+    setProgress(0);
+    setStatus(null);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await apiClient.post('/upload_csv', formData, {
+        onUploadProgress: (evt) => {
+          if (evt.total) setProgress(Math.max(1, Math.round((evt.loaded / evt.total) * 100)));
+        },
+      });
+      setStatus('success');
+      setProgress(100);
+      if (onSuccess) await onSuccess(response);
+    } catch (err) {
+      setStatus('error');
+      const details = err?.response?.data?.errors?.[0]?.issue;
+      setError(details || err?.response?.data?.message || 'CSV upload failed.');
+    } finally {
+      setUploading(false);
+    }
   };
+
+  const handleSkuUpload = () => uploadFile(skuFile, {
+    setUploading: setSkuUploading,
+    setProgress: setSkuProgress,
+    setStatus: setSkuStatus,
+    setError: setSkuError,
+    onSuccess: async () => {
+      const nowIso = new Date().toISOString();
+      CATEGORIES.forEach((c) => localStorage.setItem(`last_upload_${c}`, nowIso));
+    },
+  });
+
+  const handleSalesUpload = () => uploadFile(salesFile, {
+    setUploading: setSalesUploading,
+    setProgress: setSalesProgress,
+    setStatus: setSalesStatus,
+    setError: setSalesError,
+    onSuccess: async (response) => {
+      const nowIso = new Date().toISOString();
+      CATEGORIES.forEach((c) => localStorage.setItem(`last_upload_${c}`, nowIso));
+      const summary = salesFile ? await parseCsvSummary(salesFile) : null;
+      if (summary) {
+        setUploadSummary({
+          ...summary,
+          acceptedRows: Number(response?.data?.records_inserted || summary.acceptedRows),
+          modelsWillRetrain: true,
+        });
+      }
+      await loadOperationalData(inventoryValues);
+    },
+  });
 
   const hasInventoryChanges = useMemo(() => {
     return CATEGORIES.some(
@@ -307,77 +367,149 @@ const DataManagement = () => {
 
       <GlassCard
         title="Dataset Upload"
-        subtitle="Upload CSV and validate before retraining"
+        subtitle="Upload CSV files and validate before retraining"
         icon={<FileSpreadsheet size={18} />}
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Quick-seed row */}
+        <div className="mb-6">
           <button
             onClick={handleSeedDemo}
             disabled={seeding}
-            className="group relative overflow-hidden p-6 rounded-xl bg-gradient-to-br from-blue-600/20 to-blue-700/10 border border-blue-500/20 hover:border-blue-500/40 transition-all duration-300 cursor-pointer flex flex-col items-center justify-center gap-3 text-center min-h-[180px] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="group w-full relative overflow-hidden p-5 rounded-xl bg-gradient-to-br from-blue-600/20 to-blue-700/10 border border-blue-500/20 hover:border-blue-500/40 transition-all duration-300 cursor-pointer flex items-center justify-center gap-4 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <div className="p-3.5 bg-blue-500/15 rounded-xl group-hover:scale-110 transition-transform duration-300">
-              {seeding ? <RefreshCw size={26} className="text-blue-400 animate-spin" /> : <Database size={26} className="text-blue-400" />}
+            <div className="p-3 bg-blue-500/15 rounded-xl group-hover:scale-110 transition-transform duration-300 shrink-0">
+              {seeding ? <RefreshCw size={22} className="text-blue-400 animate-spin" /> : <Database size={22} className="text-blue-400" />}
             </div>
-            <div>
-              <p className="font-bold text-[var(--text-1)] text-base">{seeding ? 'Seeding...' : 'Use Demo Dataset'}</p>
-              <p className="text-xs text-[var(--text-3)] mt-1">
-                {seedStatus?.ok ? `Loaded ${seedStatus.skus} SKUs + ${seedStatus.sales} sales rows` : seedStatus?.message || 'Load seeded sample data for quick testing'}
+            <div className="text-left">
+              <p className="font-bold text-[var(--text-1)] text-sm">{seeding ? 'Seeding demo data...' : 'Use Demo Dataset'}</p>
+              <p className="text-xs text-[var(--text-3)] mt-0.5">
+                {seedStatus?.ok ? `✓ Loaded ${seedStatus.skus} SKUs + ${seedStatus.sales} sales rows` : seedStatus?.message || 'One-click load of seeded sample data — no files needed'}
               </p>
             </div>
           </button>
+        </div>
 
-          <div
-            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-            onDragLeave={() => setIsDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDragOver(false);
-              const file = e.dataTransfer?.files?.[0];
-              onFileSelected(file);
-            }}
-            className={`relative p-6 rounded-xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center gap-3 text-center min-h-[180px] ${isDragOver ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_40px_rgba(59,130,246,0.15)] scale-[1.01]' : 'border-[var(--border)] hover:border-white/20 bg-white/[0.015] hover:bg-[color-mix(in_srgb,var(--bg-elevated)_76%,transparent)]'}`}
-          >
-            <input
-              type="file"
-              className="absolute inset-0 opacity-0 cursor-pointer z-10"
-              accept=".csv"
-              onChange={(e) => onFileSelected(e.target.files?.[0])}
-            />
-            <div className={`p-3.5 rounded-xl transition-all duration-300 ${isDragOver ? 'bg-blue-500/15 scale-110' : 'bg-white/5'}`}>
-              <CloudUpload size={28} className={`transition-colors duration-300 ${isDragOver ? 'text-blue-400' : 'text-[var(--text-3)]'}`} />
+        {/* Divider */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex-1 h-px bg-[var(--border)]" />
+          <span className="text-xs text-[var(--text-3)] font-semibold uppercase tracking-wider">or upload your own CSVs</span>
+          <div className="flex-1 h-px bg-[var(--border)]" />
+        </div>
+
+        {/* Two-step upload */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+          {/* ── Step 1: SKU Master ────────────────────────────── */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center shrink-0 ${skuStatus === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                }`}>
+                {skuStatus === 'success' ? '✓' : '1'}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-[var(--text-1)]">SKU Master</p>
+                <p className="text-xs text-[var(--text-3)]">Products, categories, prices &amp; stock</p>
+              </div>
             </div>
-            <div>
-              <p className="font-semibold text-[var(--text-1)]">{selectedFile ? selectedFile.name : 'Drag & drop CSV file'}</p>
-              <p className="text-xs text-[var(--text-3)] mt-1">or click to browse</p>
+
+            {/* Drop zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setSkuDragOver(true); }}
+              onDragLeave={() => setSkuDragOver(false)}
+              onDrop={(e) => { e.preventDefault(); setSkuDragOver(false); const f = e.dataTransfer?.files?.[0]; if (f) { setSkuFile(f); setSkuStatus(null); setSkuError(''); } }}
+              className={`relative p-5 rounded-xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center gap-2 text-center min-h-[120px] ${skuDragOver ? 'border-blue-500 bg-blue-500/10 scale-[1.01]' :
+                  skuStatus === 'success' ? 'border-emerald-500/40 bg-emerald-500/5' :
+                    'border-[var(--border)] hover:border-white/20 bg-white/[0.015] hover:bg-[color-mix(in_srgb,var(--bg-elevated)_76%,transparent)]'
+                }`}
+            >
+              <input type="file" accept=".csv" className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) { setSkuFile(f); setSkuStatus(null); setSkuError(''); } }} />
+              <CloudUpload size={22} className={skuStatus === 'success' ? 'text-emerald-400' : 'text-[var(--text-3)]'} />
+              <p className="text-xs font-semibold text-[var(--text-1)] truncate max-w-[180px]">
+                {skuFile ? skuFile.name : 'Drag & drop or click to browse'}
+              </p>
+              <p className="text-[10px] text-[var(--text-3)]">Cols: sku_id · product_name · category · mrp · cost · current_inventory</p>
             </div>
+
+            {/* Upload btn + status */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleSkuUpload}
+                disabled={!skuFile || skuUploading}
+                className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {skuUploading ? 'Uploading...' : 'Upload SKU Master'}
+              </button>
+              {skuStatus === 'success' && <span className="text-[var(--badge-success-text)] text-xs flex items-center gap-1"><CheckCircle2 size={12} />Done</span>}
+              {skuStatus === 'error' && <span className="text-[var(--badge-danger-text)] text-xs flex items-center gap-1"><AlertCircle size={12} />{skuError}</span>}
+            </div>
+            {(skuUploading || skuProgress > 0) && (
+              <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 transition-all" style={{ width: `${skuProgress}%` }} />
+              </div>
+            )}
+          </div>
+
+          {/* ── Step 2: Sales Data ────────────────────────────── */}
+          <div className={`flex flex-col gap-3 transition-opacity duration-300 ${skuStatus === 'success' ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+            <div className="flex items-center gap-2">
+              <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center shrink-0 ${salesStatus === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
+                  skuStatus === 'success' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-white/10 text-[var(--text-3)] border border-white/10'
+                }`}>
+                {salesStatus === 'success' ? '✓' : '2'}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-[var(--text-1)]">Sales Data</p>
+                <p className="text-xs text-[var(--text-3)]">Historical sales — triggers model retraining</p>
+              </div>
+              {skuStatus !== 'success' && (
+                <span className="ml-auto text-[10px] text-amber-400 border border-amber-400/30 rounded px-1.5 py-0.5 bg-amber-400/10">Upload SKU first</span>
+              )}
+            </div>
+
+            {/* Drop zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setSalesDragOver(true); }}
+              onDragLeave={() => setSalesDragOver(false)}
+              onDrop={(e) => { e.preventDefault(); setSalesDragOver(false); const f = e.dataTransfer?.files?.[0]; if (f) { setSalesFile(f); setSalesStatus(null); setSalesError(''); } }}
+              className={`relative p-5 rounded-xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center gap-2 text-center min-h-[120px] ${salesDragOver ? 'border-blue-500 bg-blue-500/10 scale-[1.01]' :
+                  salesStatus === 'success' ? 'border-emerald-500/40 bg-emerald-500/5' :
+                    'border-[var(--border)] hover:border-white/20 bg-white/[0.015]'
+                }`}
+            >
+              <input type="file" accept=".csv" className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) { setSalesFile(f); setSalesStatus(null); setSalesError(''); } }} />
+              <CloudUpload size={22} className={salesStatus === 'success' ? 'text-emerald-400' : 'text-[var(--text-3)]'} />
+              <p className="text-xs font-semibold text-[var(--text-1)] truncate max-w-[180px]">
+                {salesFile ? salesFile.name : 'Drag & drop or click to browse'}
+              </p>
+              <p className="text-[10px] text-[var(--text-3)]">Cols: date · sku_id · units_sold</p>
+            </div>
+
+            {/* Upload btn + status */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleSalesUpload}
+                disabled={!salesFile || salesUploading || skuStatus !== 'success'}
+                className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {salesUploading ? 'Uploading...' : 'Upload Sales Data'}
+              </button>
+              {salesStatus === 'success' && <span className="text-[var(--badge-success-text)] text-xs flex items-center gap-1"><CheckCircle2 size={12} />Done — models retraining</span>}
+              {salesStatus === 'error' && <span className="text-[var(--badge-danger-text)] text-xs flex items-center gap-1"><AlertCircle size={12} />{salesError}</span>}
+            </div>
+            {(salesUploading || salesProgress > 0) && (
+              <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 transition-all" style={{ width: `${salesProgress}%` }} />
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="mt-5 flex items-center gap-3">
-          <button
-            onClick={handleUpload}
-            disabled={!selectedFile || uploading}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {uploading ? 'Uploading...' : 'Upload CSV'}
-          </button>
-          {uploadStatus === 'success' && <span className="text-[var(--badge-success-text)] text-sm flex items-center gap-1"><CheckCircle2 size={14} />Upload successful</span>}
-          {uploadStatus === 'error' && <span className="text-[var(--badge-danger-text)] text-sm flex items-center gap-1"><AlertCircle size={14} />{uploadError}</span>}
-        </div>
-
-        {(uploading || uploadProgress > 0) && (
-          <div className="mt-3">
-            <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 transition-all" style={{ width: `${uploadProgress}%` }} />
-            </div>
-            <p className="text-xs text-[var(--text-3)] mt-1">{uploadProgress}%</p>
-          </div>
-        )}
-
+        {/* Validation summary after sales upload */}
         {uploadSummary && (
           <div className="mt-5 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] p-4">
-            <p className="text-xs uppercase tracking-wider text-[var(--text-3)] mb-3">Validation Summary</p>
+            <p className="text-xs uppercase tracking-wider text-[var(--text-3)] mb-3">Sales Validation Summary</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
               <p>Rows accepted: <span className="font-semibold text-[var(--badge-success-text)]">{uploadSummary.acceptedRows}</span></p>
               <p>Rows rejected: <span className="font-semibold text-[var(--badge-danger-text)]">{uploadSummary.rejectedRows}</span></p>
