@@ -213,9 +213,10 @@ tmp-taskdef*.json
 # Deployment artifacts (local zips only, use CI/CD for releases)
 *.zip
 
-# Database files
+# Database and demo files
 *.db
 data/db/
+data/demo_*.csv
 
 # Frontend build output
 frontend/dist/

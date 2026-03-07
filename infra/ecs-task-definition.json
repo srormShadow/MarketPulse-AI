@@ -1,14 +1,16 @@
 {
-  "family": "marketpulse-backend",
+  "family": "marketpulse-ai-task",
   "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
   "cpu": "1024",
   "memory": "2048",
   "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRole",
   "taskRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/marketpulseTaskRole",
   "containerDefinitions": [
     {
-      "name": "marketpulse-backend",
+      "name": "marketpulse-ai",
       "image": "<IMAGE_URI>",
       "essential": true,
       "portMappings": [
@@ -19,17 +21,50 @@
         }
       ],
       "environment": [
-        { "name": "APP_ENV", "value": "production" },
-        { "name": "DEBUG", "value": "false" },
-        { "name": "USE_DYNAMO", "value": "true" },
-        { "name": "AWS_REGION", "value": "ap-south-1" },
-        { "name": "AWS_ACCESS_KEY_ID", "value": "<AWS_ACCESS_KEY_ID>" },
-        { "name": "AWS_SECRET_ACCESS_KEY", "value": "<AWS_SECRET_ACCESS_KEY>" },
-        { "name": "AWS_SESSION_TOKEN", "value": "" },
-        { "name": "DYNAMO_ENDPOINT_URL", "value": "" },
-        { "name": "S3_ENDPOINT_URL", "value": "" },
-        { "name": "S3_DATA_BUCKET", "value": "marketpulse-data" },
-        { "name": "S3_MODEL_BUCKET", "value": "marketpulse-models" }
+        {
+          "name": "APP_ENV",
+          "value": "production"
+        },
+        {
+          "name": "DEBUG",
+          "value": "false"
+        },
+        {
+          "name": "USE_DYNAMO",
+          "value": "true"
+        },
+        {
+          "name": "AWS_REGION",
+          "value": "ap-south-1"
+        },
+        {
+          "name": "AWS_ACCESS_KEY_ID",
+          "value": "<AWS_ACCESS_KEY_ID>"
+        },
+        {
+          "name": "AWS_SECRET_ACCESS_KEY",
+          "value": "<AWS_SECRET_ACCESS_KEY>"
+        },
+        {
+          "name": "AWS_SESSION_TOKEN",
+          "value": ""
+        },
+        {
+          "name": "DYNAMO_ENDPOINT_URL",
+          "value": ""
+        },
+        {
+          "name": "S3_ENDPOINT_URL",
+          "value": ""
+        },
+        {
+          "name": "S3_DATA_BUCKET",
+          "value": "marketpulse-data"
+        },
+        {
+          "name": "S3_MODEL_BUCKET",
+          "value": "marketpulse-models"
+        }
       ],
       "healthCheck": {
         "command": [
@@ -52,4 +87,3 @@
     }
   ]
 }
-
