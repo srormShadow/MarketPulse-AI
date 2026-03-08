@@ -1,4 +1,4 @@
-﻿# MarketPulse AI
+# MarketPulse AI
 
 AI-powered retail demand forecasting and inventory optimization for small and medium Indian retailers.
 
@@ -104,7 +104,10 @@ pip install -r requirements.txt
 
 ### Backend (local)
 ```bash
+# Windows (cmd):
 set PYTHONPATH=src
+# macOS/Linux:
+export PYTHONPATH=src
 uvicorn marketpulse.main:app --reload --port 8000
 ```
 
@@ -114,11 +117,13 @@ cd frontend
 npm install
 npm run dev
 ```
+For local backend, create `frontend/.env.local` with `VITE_API_BASE_URL=http://localhost:8000`.
 
 ### Docker Compose (recommended for quick full-stack run)
 ```bash
 docker-compose up --build
 ```
+Note: Docker maps DynamoDB to port 8000 and the backend to 8001. If mixing local backend (`run_backend.py`) with Docker, stop the DynamoDB container first to avoid port conflicts.
 
 ## 7. Demo Script (for judges)
 

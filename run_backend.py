@@ -5,6 +5,10 @@ This script starts the FastAPI backend server with auto-reload enabled.
 
 Usage:
     python run_backend.py
+
+Note: If using Docker for DynamoDB/LocalStack, DynamoDB Local uses port 8000.
+Run the backend in Docker too (port 8001), or stop the DynamoDB container
+before running this script locally on port 8000.
 """
 
 import subprocess

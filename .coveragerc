@@ -1,8 +1,6 @@
-﻿[run]
+[run]
 branch = True
 source = src/marketpulse
-omit =
-    tests/*
 
 [report]
 show_missing = True
