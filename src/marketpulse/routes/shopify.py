@@ -40,10 +40,20 @@ router = APIRouter(tags=["shopify"])
 _STATE_TTL_SECONDS = 600
 
 
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_shopify_configured() -> bool:
+    """Return True if Shopify OAuth credentials are present."""
+    settings = get_settings()
+    return bool(settings.shopify_api_key and settings.shopify_api_secret)
+
+
 def _validate_shopify_configured() -> None:
     """Raise if Shopify OAuth credentials are not configured."""
-    settings = get_settings()
-    if not settings.shopify_api_key or not settings.shopify_api_secret:
+    if not _is_shopify_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Shopify integration is not configured. Set SHOPIFY_API_KEY and SHOPIFY_API_SECRET.",
@@ -173,7 +183,7 @@ def _decode_oauth_state(state: str, expected_shop: str) -> None:
 
 
 def _validate_shop_domain(shop: str) -> str:
-    """Validate and normalize a Shopify domain."""
+    """Validate and normalize a Shopify domain. Raises HTTPException on invalid input."""
     clean = shop.strip().lower()
     for prefix in ("https://", "http://"):
         if clean.startswith(prefix):
@@ -185,6 +195,209 @@ def _validate_shop_domain(shop: str) -> str:
             detail="Invalid shop domain. Must end with .myshopify.com",
         )
     return clean
+
+
+def _normalize_shop_input(raw: str) -> str | None:
+    """Normalize freeform shop input to a full myshopify.com domain, or None if empty."""
+    clean = raw.strip().lower()
+    if not clean:
+        return None
+    for prefix in ("https://", "http://"):
+        if clean.startswith(prefix):
+            clean = clean[len(prefix):]
+    clean = clean.rstrip("/")
+    if not clean.endswith(".myshopify.com"):
+        clean = f"{clean}.myshopify.com"
+    return clean
+
+
+def _build_authorization_url(request: Request, shop: str) -> str:
+    """Build the Shopify OAuth authorization URL for a validated shop domain."""
+    settings = get_settings()
+    redirect_uri = settings.shopify_redirect_uri
+    if not redirect_uri:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="SHOPIFY_REDIRECT_URI is not configured.",
+        )
+    _validate_local_redirect_uri_consistency(request, redirect_uri)
+    state = _encode_oauth_state(shop)
+    params = urlencode(
+        {
+            "client_id": settings.shopify_api_key,
+            "scope": settings.shopify_scopes,
+            "redirect_uri": redirect_uri,
+            "state": state,
+        }
+    )
+    return f"https://{shop}/admin/oauth/authorize?{params}"
+
+
+# ---------------------------------------------------------------------------
+# Connect page HTML templates
+# ---------------------------------------------------------------------------
+
+
+_CONNECT_PAGE_CSS = """\
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #0c0f1a; color: #e2e8f0;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    .card {
+      background: #151928; border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px; padding: 40px 36px; max-width: 420px; width: 100%; text-align: center;
+    }
+    .logo { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+    .logo svg { width: 28px; height: 28px; fill: none; stroke: #96bf48; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .logo span { font-size: 15px; font-weight: 700; letter-spacing: 0.5px; color: #94a3b8; text-transform: uppercase; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #f1f5f9; }
+    .subtitle { font-size: 14px; color: #94a3b8; margin-bottom: 28px; line-height: 1.5; }
+    .field { position: relative; margin-bottom: 16px; }
+    .field input {
+      width: 100%; background: #0c0f1a; border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px; padding: 14px 150px 14px 16px; font-size: 15px; color: #e2e8f0;
+      outline: none; transition: border-color 0.2s;
+    }
+    .field input:focus { border-color: #96bf48; box-shadow: 0 0 0 3px rgba(150,191,72,0.15); }
+    .field input::placeholder { color: #4a5568; }
+    .suffix { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 13px; color: #64748b; pointer-events: none; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 14px 20px; font-size: 15px; font-weight: 600; color: #fff;
+      background: #96bf48; border: none; border-radius: 12px; cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+    }
+    .btn:hover { background: #7ea83d; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .help { margin-top: 20px; font-size: 12px; color: #64748b; line-height: 1.5; }
+    .error {
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); color: #fca5a5;
+      border-radius: 10px; padding: 12px 16px; font-size: 13px; margin-bottom: 20px;
+      text-align: left; line-height: 1.5;
+    }
+    code {
+      display: inline-block; margin-top: 16px; background: #0c0f1a;
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px 14px;
+      font-size: 12px; color: #96bf48; text-align: left; word-break: break-all;
+    }"""
+
+_LOGO_SVG = (
+    '<svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>'
+    '<line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>'
+)
+
+_ARROW_SVG = (
+    '<svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/>'
+    '<polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>'
+)
+
+
+def _render_connect_page(*, error_message: str = "", prefill: str = "") -> HTMLResponse:
+    """Render the branded Shopify connect page."""
+    error_html = f'<div class="error">{error_message}</div>' if error_message else ""
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Connect Shopify &mdash; MarketPulse</title>
+  <style>{_CONNECT_PAGE_CSS}</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">{_LOGO_SVG}<span>MarketPulse</span></div>
+    <h1>Connect your Shopify store</h1>
+    <p class="subtitle">
+      Enter your store name and we'll take you to Shopify to authorize the connection.
+    </p>
+    {error_html}
+    <form method="get" action="/shopify/connect">
+      <div class="field">
+        <input
+          type="text" name="shop" placeholder="your-store"
+          value="{prefill}" required autofocus
+          autocomplete="off" autocapitalize="off" spellcheck="false"
+        />
+        <span class="suffix">.myshopify.com</span>
+      </div>
+      <button type="submit" class="btn">{_ARROW_SVG} Continue to Shopify</button>
+    </form>
+    <p class="help">
+      You'll be redirected to Shopify to approve access. No passwords are shared with MarketPulse.
+    </p>
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(content=html, status_code=status.HTTP_200_OK)
+
+
+def _render_not_configured_page() -> HTMLResponse:
+    """Render a friendly error page when Shopify is not configured."""
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shopify Not Configured &mdash; MarketPulse</title>
+  <style>{_CONNECT_PAGE_CSS}</style>
+</head>
+<body>
+  <div class="card">
+    <h1 style="color:#fca5a5">Shopify integration is not configured</h1>
+    <p class="subtitle">
+      To connect a Shopify store, set the following environment variables and restart the backend:
+    </p>
+    <code>SHOPIFY_API_KEY=your_key<br/>SHOPIFY_API_SECRET=your_secret<br/>SHOPIFY_REDIRECT_URI=your_callback_url</code>
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(content=html, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+# ---------------------------------------------------------------------------
+# Connect page — the primary entry point for Shopify OAuth
+# ---------------------------------------------------------------------------
+
+
+@router.get("/shopify/connect", response_model=None)
+@limiter.limit("15/minute")
+async def connect_page(
+    request: Request,
+    shop: str = Query(default=""),
+) -> HTMLResponse | RedirectResponse:
+    """Backend-served connect page that drives the Shopify OAuth flow.
+
+    - No ``shop`` param → render the branded connect form.
+    - ``shop`` param provided → validate, build OAuth URL, redirect to Shopify.
+
+    This serves as both the direct-connect entry point (opened from the frontend
+    in a popup) and the Shopify App Store install entry point (Shopify sends
+    ``?shop=domain.myshopify.com`` automatically).
+    """
+    if not _is_shopify_configured():
+        return _render_not_configured_page()
+
+    raw_shop = shop.strip()
+    if not raw_shop:
+        return _render_connect_page()
+
+    normalized = _normalize_shop_input(raw_shop)
+    if not normalized or not normalized.endswith(".myshopify.com"):
+        return _render_connect_page(
+            error_message="Please enter a valid Shopify store name.",
+            prefill=raw_shop,
+        )
+
+    try:
+        validated = _validate_shop_domain(normalized)
+        authorization_url = _build_authorization_url(request, validated)
+    except HTTPException as exc:
+        return _render_connect_page(error_message=str(exc.detail), prefill=raw_shop)
+
+    return RedirectResponse(url=authorization_url, status_code=status.HTTP_302_FOUND)
 
 
 # ---------------------------------------------------------------------------
@@ -202,29 +415,10 @@ async def initiate_install(
     payload: ShopifyInstallRequest = Body(...),
     _api_key: str = Depends(verify_api_key),
 ) -> ShopifyInstallResponse:
-    """Generate a Shopify OAuth authorization URL."""
+    """Generate a Shopify OAuth authorization URL (programmatic API)."""
     _validate_shopify_configured()
-    settings = get_settings()
     shop = _validate_shop_domain(payload.shop_domain)
-
-    redirect_uri = settings.shopify_redirect_uri
-    if not redirect_uri:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="SHOPIFY_REDIRECT_URI is not configured.",
-        )
-    _validate_local_redirect_uri_consistency(request, redirect_uri)
-    state = _encode_oauth_state(shop)
-
-    params = urlencode(
-        {
-            "client_id": settings.shopify_api_key,
-            "scope": settings.shopify_scopes,
-            "redirect_uri": redirect_uri,
-            "state": state,
-        }
-    )
-    authorization_url = f"https://{shop}/admin/oauth/authorize?{params}"
+    authorization_url = _build_authorization_url(request, shop)
     return ShopifyInstallResponse(authorization_url=authorization_url)
 
 

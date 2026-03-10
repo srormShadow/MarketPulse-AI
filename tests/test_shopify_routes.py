@@ -53,6 +53,117 @@ def _webhook_hmac(secret: str, body: bytes) -> str:
     return base64.b64encode(digest).decode("utf-8")
 
 
+# ---------------------------------------------------------------------------
+# Connect page tests
+# ---------------------------------------------------------------------------
+
+
+def test_shopify_connect_page_renders_form_when_no_shop_param(client, monkeypatch):
+    _configure_shopify_env(monkeypatch)
+
+    response = client.get("/shopify/connect", follow_redirects=False)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Connect your Shopify store" in html
+    assert 'name="shop"' in html
+    assert ".myshopify.com" in html
+    assert "Continue to Shopify" in html
+
+
+def test_shopify_connect_page_shows_not_configured_when_creds_missing(client, monkeypatch):
+    _configure_shopify_env(monkeypatch, api_key="", api_secret="")
+
+    response = client.get("/shopify/connect", follow_redirects=False)
+
+    assert response.status_code == 503
+    html = response.text
+    assert "not configured" in html
+    assert "SHOPIFY_API_KEY" in html
+
+
+def test_shopify_connect_redirects_to_oauth_when_shop_provided(client, monkeypatch):
+    _configure_shopify_env(monkeypatch)
+
+    response = client.get(
+        "/shopify/connect",
+        params={"shop": "marketpulse-ai-2.myshopify.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "marketpulse-ai-2.myshopify.com"
+    assert parsed.path == "/admin/oauth/authorize"
+    params = parse_qs(parsed.query)
+    assert params["client_id"] == ["test_shopify_api_key"]
+    assert params["redirect_uri"] == ["http://localhost:8000/shopify/callback"]
+    assert "state" in params
+
+
+def test_shopify_connect_auto_appends_myshopify_suffix(client, monkeypatch):
+    _configure_shopify_env(monkeypatch)
+
+    response = client.get(
+        "/shopify/connect",
+        params={"shop": "marketpulse-ai-2"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    assert "marketpulse-ai-2.myshopify.com" in location
+
+
+def test_shopify_connect_handles_full_url_with_https(client, monkeypatch):
+    _configure_shopify_env(monkeypatch)
+
+    response = client.get(
+        "/shopify/connect",
+        params={"shop": "https://marketpulse-ai-2.myshopify.com/"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    assert "marketpulse-ai-2.myshopify.com" in location
+
+
+def test_shopify_connect_shows_error_for_empty_shop_value(client, monkeypatch):
+    _configure_shopify_env(monkeypatch)
+
+    response = client.get(
+        "/shopify/connect",
+        params={"shop": "   "},
+        follow_redirects=False,
+    )
+
+    # Empty/whitespace shop should render the form (not redirect)
+    assert response.status_code == 200
+    assert "Connect your Shopify store" in response.text
+
+
+def test_shopify_connect_shows_error_for_redirect_uri_misconfigured(client, monkeypatch):
+    _configure_shopify_env(monkeypatch, redirect_uri="")
+
+    response = client.get(
+        "/shopify/connect",
+        params={"shop": "marketpulse-ai-2"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    html = response.text
+    assert "SHOPIFY_REDIRECT_URI" in html
+
+
+# ---------------------------------------------------------------------------
+# POST /shopify/install (programmatic API) tests
+# ---------------------------------------------------------------------------
+
+
 def test_shopify_install_returns_authorization_url_with_signed_state(client, monkeypatch):
     _configure_shopify_env(monkeypatch)
 
@@ -143,7 +254,7 @@ def test_shopify_callback_success_creates_store_and_returns_popup_bridge(client,
             }
             return _FakeResponse()
 
-    monkeypatch.setattr(shopify_routes.httpx, "AsyncClient", lambda timeout=15.0: _FakeAsyncClient())
+    monkeypatch.setattr(shopify_routes.httpx, "AsyncClient", lambda **kwargs: _FakeAsyncClient())
 
     _, state = _install_and_get_state(client, "marketpulse-ai-2.myshopify.com")
     callback_params = {
@@ -193,7 +304,7 @@ def test_shopify_callback_success_updates_existing_store_token(client, repo, mon
         async def post(self, url, json):
             return _FakeResponse()
 
-    monkeypatch.setattr(shopify_routes.httpx, "AsyncClient", lambda timeout=15.0: _FakeAsyncClient())
+    monkeypatch.setattr(shopify_routes.httpx, "AsyncClient", lambda **kwargs: _FakeAsyncClient())
 
     _, state = _install_and_get_state(client, "marketpulse-ai-2.myshopify.com")
     callback_response = client.get(
@@ -293,7 +404,7 @@ def test_shopify_callback_handles_token_exchange_failure(client, monkeypatch):
 
     import httpx
 
-    monkeypatch.setattr(shopify_routes.httpx, "AsyncClient", lambda timeout=15.0: _FakeAsyncClient())
+    monkeypatch.setattr(shopify_routes.httpx, "AsyncClient", lambda **kwargs: _FakeAsyncClient())
 
     _, state = _install_and_get_state(client, "marketpulse-ai-2.myshopify.com")
     response = client.get(
@@ -326,7 +437,7 @@ def test_shopify_callback_handles_missing_access_token(client, monkeypatch):
         async def post(self, url, json):
             return _FakeResponse()
 
-    monkeypatch.setattr(shopify_routes.httpx, "AsyncClient", lambda timeout=15.0: _FakeAsyncClient())
+    monkeypatch.setattr(shopify_routes.httpx, "AsyncClient", lambda **kwargs: _FakeAsyncClient())
 
     _, state = _install_and_get_state(client, "marketpulse-ai-2.myshopify.com")
     response = client.get(
