@@ -82,12 +82,13 @@ def _validate_local_redirect_uri_consistency(request: Request, redirect_uri: str
 
 def _frontend_redirect_url(status_value: str, shop: str, *, reason: str = "", message: str = "") -> str:
     settings = get_settings()
-    if not settings.frontend_url:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="FRONTEND_URL is not configured. Set the FRONTEND_URL environment variable.",
-        )
-    frontend_url = settings.frontend_url.split(",")[0].strip()
+    if settings.frontend_url:
+        frontend_url = settings.frontend_url.split(",")[0].strip()
+    elif settings.shopify_redirect_uri:
+        parsed = urlparse(settings.shopify_redirect_uri)
+        frontend_url = f"{parsed.scheme}://{parsed.netloc}"
+    else:
+        frontend_url = "http://localhost:5173"
     params = {"tab": "data", "shopify": status_value, "shop": shop}
     if reason:
         params["reason"] = reason
