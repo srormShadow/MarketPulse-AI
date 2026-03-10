@@ -25,7 +25,7 @@ def _init_sqlite() -> None:
     from marketpulse.db.base import Base
     from marketpulse.db.repository import SQLiteRepository
     from marketpulse.db.session import SessionLocal, _get_engine
-    from marketpulse.models import Festival, HealthPing, SKU, Sales  # noqa: F401 — register models
+    from marketpulse.models import Festival, HealthPing, SKU, Sales, ShopifyStore, ShopifyWebhookEvent  # noqa: F401 — register models
     from marketpulse.services.festival_seed import seed_festivals_if_empty
 
     try:

@@ -20,6 +20,8 @@ from marketpulse.models.forecast_cache import ForecastCache
 from marketpulse.models.festival import Festival
 from marketpulse.models.recommendation_log import RecommendationLog
 from marketpulse.models.sales import Sales
+from marketpulse.models.shopify_store import ShopifyStore
+from marketpulse.models.shopify_webhook_event import ShopifyWebhookEvent
 from marketpulse.models.sku import SKU
 from marketpulse.models.upload_event import UploadEvent
 
@@ -64,6 +66,17 @@ class DataRepository(Protocol):
     ) -> dict[str, Any] | None: ...
     def get_category_last_upload_timestamp(self, category: str) -> datetime | None: ...
 
+    # --- Shopify Stores ---
+    def create_shopify_store(self, shop_domain: str, access_token: str, scope: str) -> dict[str, Any]: ...
+    def get_shopify_store(self, store_id: int) -> dict[str, Any] | None: ...
+    def get_shopify_store_by_domain(self, shop_domain: str) -> dict[str, Any] | None: ...
+    def list_shopify_stores(self) -> list[dict[str, Any]]: ...
+    def update_shopify_store_token(self, shop_domain: str, access_token: str, scope: str) -> None: ...
+    def deactivate_shopify_store(self, shop_domain: str) -> None: ...
+    def update_shopify_last_synced(self, store_id: int) -> None: ...
+    def is_webhook_processed(self, shopify_webhook_id: str) -> bool: ...
+    def record_webhook_event(self, shopify_webhook_id: str, topic: str, shop_domain: str) -> None: ...
+
     # --- Transaction control ---
     def commit(self) -> None: ...
     def rollback(self) -> None: ...
@@ -103,15 +116,19 @@ class SQLiteRepository:
 
     def upsert_skus(self, records: list[dict]) -> int:
         stmt = sqlite_insert(SKU).values(records)
+        update_set: dict[str, Any] = {
+            "product_name": stmt.excluded.product_name,
+            "category": stmt.excluded.category,
+            "mrp": stmt.excluded.mrp,
+            "cost": stmt.excluded.cost,
+            "current_inventory": stmt.excluded.current_inventory,
+            "data_source": stmt.excluded.data_source,
+            "source_store_id": stmt.excluded.source_store_id,
+            "external_id": stmt.excluded.external_id,
+        }
         upsert = stmt.on_conflict_do_update(
             index_elements=[SKU.sku_id],
-            set_={
-                "product_name": stmt.excluded.product_name,
-                "category": stmt.excluded.category,
-                "mrp": stmt.excluded.mrp,
-                "cost": stmt.excluded.cost,
-                "current_inventory": stmt.excluded.current_inventory,
-            },
+            set_=update_set,
         )
         self._db.execute(upsert)
         now_utc = datetime.now(timezone.utc)
@@ -166,7 +183,12 @@ class SQLiteRepository:
         stmt = sqlite_insert(Sales).values(records)
         upsert = stmt.on_conflict_do_update(
             index_elements=[Sales.date, Sales.sku_id],
-            set_={"units_sold": stmt.excluded.units_sold},
+            set_={
+                "units_sold": stmt.excluded.units_sold,
+                "data_source": stmt.excluded.data_source,
+                "source_store_id": stmt.excluded.source_store_id,
+                "external_id": stmt.excluded.external_id,
+            },
         )
         self._db.execute(upsert)
         sku_ids = list({str(rec.get("sku_id", "")) for rec in records if rec.get("sku_id")})
@@ -365,6 +387,102 @@ class SQLiteRepository:
         if latest.tzinfo:
             return latest.astimezone(timezone.utc)
         return latest.replace(tzinfo=timezone.utc)
+
+    # --- Shopify Stores ---------------------------------------------------
+
+    def _shopify_store_to_dict(self, store: ShopifyStore) -> dict[str, Any]:
+        return {
+            "id": store.id,
+            "shop_domain": store.shop_domain,
+            "scope": store.scope,
+            "is_active": store.is_active,
+            "installed_at": store.installed_at.astimezone(timezone.utc).isoformat() if store.installed_at else None,
+            "last_synced_at": store.last_synced_at.astimezone(timezone.utc).isoformat() if store.last_synced_at else None,
+        }
+
+    def create_shopify_store(self, shop_domain: str, access_token: str, scope: str) -> dict[str, Any]:
+        store = ShopifyStore(
+            shop_domain=shop_domain,
+            access_token=access_token,
+            scope=scope,
+            is_active=True,
+            installed_at=datetime.now(timezone.utc),
+        )
+        self._db.add(store)
+        self._db.commit()
+        self._db.refresh(store)
+        return self._shopify_store_to_dict(store)
+
+    def get_shopify_store(self, store_id: int) -> dict[str, Any] | None:
+        store = self._db.scalars(
+            select(ShopifyStore).where(ShopifyStore.id == store_id)
+        ).first()
+        if store is None:
+            return None
+        return self._shopify_store_to_dict(store)
+
+    def get_shopify_store_by_domain(self, shop_domain: str) -> dict[str, Any] | None:
+        store = self._db.scalars(
+            select(ShopifyStore).where(ShopifyStore.shop_domain == shop_domain)
+        ).first()
+        if store is None:
+            return None
+        result = self._shopify_store_to_dict(store)
+        result["access_token"] = store.access_token
+        return result
+
+    def list_shopify_stores(self) -> list[dict[str, Any]]:
+        stores = self._db.scalars(
+            select(ShopifyStore).where(ShopifyStore.is_active == True).order_by(ShopifyStore.installed_at.desc())
+        ).all()
+        return [self._shopify_store_to_dict(s) for s in stores]
+
+    def update_shopify_store_token(self, shop_domain: str, access_token: str, scope: str) -> None:
+        store = self._db.scalars(
+            select(ShopifyStore).where(ShopifyStore.shop_domain == shop_domain)
+        ).first()
+        if store:
+            store.access_token = access_token
+            store.scope = scope
+            store.is_active = True
+            store.uninstalled_at = None
+            self._db.commit()
+
+    def deactivate_shopify_store(self, shop_domain: str) -> None:
+        store = self._db.scalars(
+            select(ShopifyStore).where(ShopifyStore.shop_domain == shop_domain)
+        ).first()
+        if store:
+            store.is_active = False
+            store.uninstalled_at = datetime.now(timezone.utc)
+            self._db.commit()
+
+    def update_shopify_last_synced(self, store_id: int) -> None:
+        store = self._db.scalars(
+            select(ShopifyStore).where(ShopifyStore.id == store_id)
+        ).first()
+        if store:
+            store.last_synced_at = datetime.now(timezone.utc)
+            self._db.commit()
+
+    def is_webhook_processed(self, shopify_webhook_id: str) -> bool:
+        count = self._db.scalar(
+            select(func.count())
+            .select_from(ShopifyWebhookEvent)
+            .where(ShopifyWebhookEvent.shopify_webhook_id == shopify_webhook_id)
+        )
+        return (count or 0) > 0
+
+    def record_webhook_event(self, shopify_webhook_id: str, topic: str, shop_domain: str) -> None:
+        self._db.add(
+            ShopifyWebhookEvent(
+                shopify_webhook_id=shopify_webhook_id,
+                topic=topic,
+                shop_domain=shop_domain,
+                processed_at=datetime.now(timezone.utc),
+            )
+        )
+        self._db.commit()
 
     # --- Transaction control ---------------------------------------------
 

@@ -217,6 +217,7 @@ tmp-taskdef*.json
 *.db
 data/db/
 data/demo_*.csv
+tests/.tmp/
 
 # Frontend build output
 frontend/dist/

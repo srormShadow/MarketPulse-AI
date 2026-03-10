@@ -43,7 +43,7 @@ def _bedrock_client():
 
 def _sanitize_for_prompt(value: str) -> str:
     """Strip characters that could be used for prompt injection."""
-    blocked = ["<system>", "</system>", "<|", "|>", "\\n\\nHuman:", "\\n\\nAssistant:"]
+    blocked = ["<system>", "</system>", "<|", "|>", "\n\nHuman:", "\n\nAssistant:"]
     result = value
     for pattern in blocked:
         result = result.replace(pattern, "")

@@ -32,8 +32,14 @@ const getInitialTheme = () => {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 };
 
+const getInitialTab = () => {
+  const params = new URLSearchParams(window.location.search);
+  const requestedTab = params.get('tab');
+  return tabs.some((tab) => tab.id === requestedTab) ? requestedTab : 'portfolio';
+};
+
 const App = () => {
-  const [activeTab, setActiveTab] = useState('portfolio');
+  const [activeTab, setActiveTab] = useState(getInitialTab);
   const [backendReachable, setBackendReachable] = useState(true);
   const [connectionChecked, setConnectionChecked] = useState(false);
   const [theme, setTheme] = useState(getInitialTheme);
@@ -58,8 +64,12 @@ const App = () => {
     };
 
     runHealthCheck();
+    const intervalId = window.setInterval(runHealthCheck, 15000);
+    window.addEventListener('focus', runHealthCheck);
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', runHealthCheck);
     };
   }, []);
 
@@ -168,7 +178,11 @@ const App = () => {
 
             {connectionChecked && !backendReachable && (
               <div className="mt-3 rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-500">
-                Unable to reach backend. Verify <span className="font-mono">VITE_API_BASE_URL={API_BASE_URL || '(not set)'}</span>
+                Unable to reach backend.
+                {' '}
+                <span className="font-mono">
+                  {API_BASE_URL ? `VITE_API_BASE_URL=${API_BASE_URL}` : 'Using local relative API paths'}
+                </span>
               </div>
             )}
 

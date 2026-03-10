@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
+    # Shopify integration
+    shopify_api_key: str = ""
+    shopify_api_secret: str = ""
+    shopify_scopes: str = "read_products,read_orders,read_inventory"
+    shopify_redirect_uri: str = ""
+    shopify_api_version: str = "2024-10"
+    shopify_default_cost_ratio: float = 0.6
+    shopify_max_cost_ratio: float = 0.99
+    shopify_api_timeout: float = 30.0
+
     @field_validator("debug", mode="before")
     @classmethod
     def _normalize_debug_value(cls, value):

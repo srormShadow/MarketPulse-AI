@@ -118,10 +118,13 @@ async def ingest_csv(
     except CsvIngestionError:
         repo.rollback()
         raise
-    except Exception:
+    except Exception as exc:
         repo.rollback()
         logger.exception("Unhandled ingestion failure")
-        raise
+        raise CsvIngestionError(
+            "Data ingestion failed due to an internal error",
+            validation_errors=[{"field": "file", "issue": "Data ingestion failed due to an internal error"}],
+        ) from exc
 
     metadata = asdict(metrics)
     metadata["s3_uri"] = s3_uri
@@ -269,6 +272,8 @@ def _upsert_skus(dataframe: pd.DataFrame, repo: DataRepository, metrics: Ingesti
     records = valid_frame[
         ["sku_id", "product_name", "category", "mrp", "cost", "current_inventory"]
     ].to_dict(orient="records")
+    for rec in records:
+        rec["data_source"] = "csv"
 
     repo.upsert_skus(records)
     return len(records)
@@ -371,4 +376,7 @@ def _log_sales_outliers(frame: pd.DataFrame) -> int:
 def _sales_records(frame: pd.DataFrame) -> list[dict[str, object]]:
     """Build normalized sales record dictionaries for bulk upsert."""
 
-    return frame[["date", "sku_id", "units_sold"]].to_dict(orient="records")
+    records = frame[["date", "sku_id", "units_sold"]].to_dict(orient="records")
+    for rec in records:
+        rec["data_source"] = "csv"
+    return records

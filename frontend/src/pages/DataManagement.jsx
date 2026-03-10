@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Package, FileSpreadsheet, CloudUpload, CheckCircle2, AlertCircle, Info, Clock,
-  ChevronDown, ChevronUp, RefreshCw, Database, ShieldAlert,
+  ChevronDown, ChevronUp, RefreshCw, Database, ShieldAlert, ShoppingBag, Unplug, Loader2,
 } from 'lucide-react';
 import GlassCard from '../components/ui/GlassCard';
 import { apiClient } from '../api/client';
 import { useInventory } from '../context/inventoryStore';
 
 const freshnessTone = (stale) => (stale ? 'text-[var(--badge-danger-text)]' : 'text-[var(--badge-success-text)]');
+
+const getApiErrorMessage = (error, fallbackMessage) => {
+  const responseData = error?.response?.data;
+  return responseData?.detail || responseData?.message || fallbackMessage;
+};
 
 const parseCsvSummary = async (file) => {
   const text = await file.text();
@@ -102,6 +107,13 @@ const DataManagement = () => {
   const [retrainingCategory, setRetrainingCategory] = useState('');
   const [seeding, setSeeding] = useState(false);
   const [seedStatus, setSeedStatus] = useState(null);
+  // Shopify integration state
+  const [shopifyStores, setShopifyStores] = useState([]);
+  const [shopifyDomain, setShopifyDomain] = useState('');
+  const [shopifyConnecting, setShopifyConnecting] = useState(false);
+  const [shopifyError, setShopifyError] = useState('');
+  const [shopifyMessage, setShopifyMessage] = useState('');
+  const [shopifySyncing, setShopifySyncing] = useState('');
 
   const loadOperationalData = async (inventorySnapshot = inventoryValues) => {
     const batchPayload = {
@@ -167,6 +179,67 @@ const DataManagement = () => {
 
   useEffect(() => {
     loadOperationalData(inventoryValues);
+    loadShopifyStores();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shopifyStatus = params.get('shopify');
+    if (!shopifyStatus) {
+      return;
+    }
+
+    const message = params.get('message') || '';
+    const shop = params.get('shop') || '';
+    if (shopifyStatus === 'connected') {
+      setShopifyError('');
+      setShopifyMessage(message || `Shopify store connected: ${shop}`);
+      setShopifyDomain(shop);
+      loadShopifyStores();
+      loadOperationalData(inventoryValues);
+    } else if (shopifyStatus === 'error') {
+      setShopifyMessage('');
+      setShopifyError(message || 'Shopify connection failed.');
+    }
+
+    params.delete('shopify');
+    params.delete('shop');
+    params.delete('message');
+    params.delete('reason');
+    params.delete('tab');
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onShopifyOAuthMessage = (event) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      const payload = event.data;
+      if (!payload || payload.type !== 'shopify-oauth-result') {
+        return;
+      }
+
+      const shop = payload.shop || '';
+      const message = payload.message || '';
+      if (payload.status === 'connected') {
+        setShopifyError('');
+        setShopifyMessage(message || `Shopify store connected: ${shop}`);
+        setShopifyDomain(shop);
+        loadShopifyStores();
+        loadOperationalData(inventoryValues);
+      } else if (payload.status === 'error') {
+        setShopifyMessage('');
+        setShopifyError(message || 'Shopify connection failed.');
+      }
+    };
+
+    window.addEventListener('message', onShopifyOAuthMessage);
+    return () => window.removeEventListener('message', onShopifyOAuthMessage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -265,45 +338,6 @@ const DataManagement = () => {
     }
   };
 
-  const handleUpload = async () => {
-    if (!selectedFile) return;
-    setUploading(true);
-    setUploadProgress(0);
-    setUploadStatus(null);
-    setUploadError('');
-
-    try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      const response = await apiClient.post('/upload_csv', formData, {
-        onUploadProgress: (evt) => {
-          if (evt.total) {
-            const pct = Math.round((evt.loaded / evt.total) * 100);
-            setUploadProgress(Math.max(1, pct));
-          }
-        },
-      });
-      setUploadStatus('success');
-      setUploadProgress(100);
-      const nowIso = new Date().toISOString();
-      CATEGORIES.forEach((c) => localStorage.setItem(`last_upload_${c}`, nowIso));
-      if (uploadSummary) {
-        setUploadSummary({
-          ...uploadSummary,
-          acceptedRows: Number(response?.data?.records_inserted || uploadSummary.acceptedRows),
-          modelsWillRetrain: true,
-        });
-      }
-      await loadOperationalData(inventoryValues);
-    } catch (err) {
-      setUploadStatus('error');
-      const details = err?.response?.data?.errors?.[0]?.issue;
-      setUploadError(details || err?.response?.data?.message || 'CSV upload failed.');
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const handleSeedDemo = async () => {
     setSeeding(true);
     setSeedStatus(null);
@@ -322,6 +356,72 @@ const DataManagement = () => {
     }
   };
 
+  const loadShopifyStores = async () => {
+    try {
+      const res = await apiClient.get('/shopify/stores');
+      const stores = res?.data?.stores || [];
+      setShopifyStores(stores);
+      if (stores.length === 1 && !shopifyDomain.trim()) {
+        setShopifyDomain(stores[0].shop_domain);
+      }
+    } catch {
+      // Shopify not configured - silently ignore
+    }
+  };
+
+  const handleConnectShopify = async () => {
+    if (!shopifyDomain.trim()) return;
+    setShopifyConnecting(true);
+    setShopifyError('');
+    setShopifyMessage('');
+    try {
+      const res = await apiClient.post('/shopify/install', { shop_domain: shopifyDomain.trim() });
+      const url = res?.data?.authorization_url;
+      if (url) {
+        window.open(url, 'shopify-oauth');
+        setShopifyMessage('Shopify approval opened in a new tab. Complete the steps there, then return to MarketPulse.');
+      } else {
+        setShopifyError('Shopify did not return an authorization URL. Verify the local backend configuration and try again.');
+      }
+    } catch (err) {
+      setShopifyError(getApiErrorMessage(err, 'Failed to start Shopify connection.'));
+    } finally {
+      setShopifyConnecting(false);
+    }
+  };
+
+  const handleSyncStore = async (storeId) => {
+    setShopifySyncing(String(storeId));
+    setShopifyError('');
+    try {
+      await apiClient.post(`/shopify/sync/${storeId}`);
+      await loadShopifyStores();
+      await loadOperationalData(inventoryValues);
+    } catch (err) {
+      setShopifyError(getApiErrorMessage(err, 'Sync failed.'));
+    } finally {
+      setShopifySyncing('');
+    }
+  };
+
+  const handleDisconnectStore = async (storeId) => {
+    setShopifyError('');
+    try {
+      await apiClient.delete(`/shopify/stores/${storeId}`);
+      setShopifyStores((prev) => {
+        const nextStores = prev.filter((s) => s.id !== storeId);
+        if (!nextStores.length) {
+          setShopifyDomain('');
+        } else if (shopifyDomain === prev.find((s) => s.id === storeId)?.shop_domain) {
+          setShopifyDomain(nextStores[0].shop_domain);
+        }
+        return nextStores;
+      });
+    } catch (err) {
+      setShopifyError(getApiErrorMessage(err, 'Failed to disconnect store.'));
+    }
+  };
+
   const handleRetrain = async (category) => {
     setRetrainingCategory(category);
     try {
@@ -330,7 +430,7 @@ const DataManagement = () => {
       localStorage.setItem(`model_trained_${category}`, now);
       await loadOperationalData(inventoryValues);
     } catch {
-      setUploadError(`Retrain endpoint unavailable for ${category}.`);
+      setSalesError(`Retrain endpoint unavailable for ${category}.`);
     } finally {
       setRetrainingCategory('');
     }
@@ -519,6 +619,101 @@ const DataManagement = () => {
               <p>Reject reason: <span className="font-semibold text-[var(--text-1)]">{uploadSummary.rejectedRows > 0 ? uploadSummary.rejectedReason : 'None'}</span></p>
             </div>
           </div>
+        )}
+      </GlassCard>
+
+      <GlassCard
+        title="Shopify Integration"
+        subtitle="Connect your Shopify store for automatic data sync"
+        icon={<ShoppingBag size={18} />}
+      >
+        {shopifyMessage && (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-[var(--badge-success-text)] mb-4 flex items-center gap-2">
+            <CheckCircle2 size={14} />
+            {shopifyMessage}
+          </div>
+        )}
+        {shopifyError && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-[var(--badge-danger-text)] mb-4 flex items-center gap-2">
+            <AlertCircle size={14} />
+            {shopifyError}
+          </div>
+        )}
+
+        {/* Connect new store via OAuth */}
+        <div className="flex items-end gap-3 mb-4">
+          <div className="flex-1">
+            <label className="text-xs font-semibold text-[var(--text-3)] uppercase tracking-wider mb-1.5 block">
+              Shop Domain
+            </label>
+            <input
+              type="text"
+              placeholder="my-store.myshopify.com"
+              value={shopifyDomain}
+              onChange={(e) => setShopifyDomain(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleConnectShopify();
+              }}
+              className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-[var(--text-1)] focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/30 outline-none transition-all"
+            />
+          </div>
+          <button
+            onClick={handleConnectShopify}
+            disabled={!shopifyDomain.trim() || shopifyConnecting}
+            className="px-4 py-2.5 rounded-xl bg-green-600 hover:bg-green-500 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors shrink-0"
+          >
+            {shopifyConnecting ? <Loader2 size={14} className="animate-spin" /> : <ShoppingBag size={14} />}
+            Connect Shopify
+          </button>
+        </div>
+        <p className="text-[11px] text-[var(--text-3)] mb-5">
+          Clicking Connect opens Shopify approval in a new tab and returns to the local backend on port 8000 before sending you back here.
+        </p>
+
+        {/* Connected stores list */}
+        {shopifyStores.length > 0 && (
+          <div>
+            <p className="text-xs uppercase tracking-wider text-[var(--text-3)] mb-3 font-semibold">Connected Stores</p>
+            <div className="space-y-2">
+              {shopifyStores.map((store) => (
+                <div
+                  key={store.id}
+                  className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${store.is_active ? 'bg-emerald-400' : 'bg-gray-500'}`} />
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-1)]">{store.shop_domain}</p>
+                      <p className="text-[10px] text-[var(--text-3)]">
+                        Last synced: {store.last_synced_at ? new Date(store.last_synced_at).toLocaleString('en-IN') : 'Never'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleSyncStore(store.id)}
+                      disabled={shopifySyncing === String(store.id)}
+                      className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 transition-colors"
+                    >
+                      {shopifySyncing === String(store.id) ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                      Sync
+                    </button>
+                    <button
+                      onClick={() => handleDisconnectStore(store.id)}
+                      className="px-3 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/40 text-[var(--badge-danger-text)] text-xs font-semibold flex items-center gap-1 transition-colors border border-red-500/20"
+                    >
+                      <Unplug size={12} />
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {shopifyStores.length === 0 && (
+          <p className="text-xs text-[var(--text-3)] text-center py-2">No Shopify stores connected yet. Enter your shop domain above to get started.</p>
         )}
       </GlassCard>
 

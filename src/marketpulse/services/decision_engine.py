@@ -139,13 +139,15 @@ def assess_risk_score(
         inventory_risk = max(0.0, min(1.0, 1.0 - (current_inventory / reorder_point)))
 
     # Factor 2: Forecast uncertainty (coefficient of variation)
-    mean_demand = float(forecast_df["predicted_mean"].mean())
-    std_demand = float((forecast_df["upper_95"] - forecast_df["predicted_mean"]).mean() / 1.96)
+    raw_mean = forecast_df["predicted_mean"].mean()
+    raw_std = (forecast_df["upper_95"] - forecast_df["predicted_mean"]).mean() / 1.96
+    mean_demand = float(raw_mean) if pd.notna(raw_mean) else 0.0
+    std_demand = float(raw_std) if pd.notna(raw_std) else 0.0
 
     uncertainty_risk = 0.0
     if mean_demand > 0:
         cv = std_demand / mean_demand
-        uncertainty_risk = min(1.0, cv)
+        uncertainty_risk = min(1.0, max(0.0, cv))
 
     # Combined risk score (weighted average)
     risk_score = 0.6 * inventory_risk + 0.4 * uncertainty_risk

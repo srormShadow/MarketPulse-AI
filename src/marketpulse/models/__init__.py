@@ -3,6 +3,8 @@ from marketpulse.models.forecast_cache import ForecastCache
 from marketpulse.models.health_ping import HealthPing
 from marketpulse.models.recommendation_log import RecommendationLog
 from marketpulse.models.sales import Sales
+from marketpulse.models.shopify_store import ShopifyStore
+from marketpulse.models.shopify_webhook_event import ShopifyWebhookEvent
 from marketpulse.models.sku import SKU
 from marketpulse.models.upload_event import UploadEvent
 
@@ -14,5 +16,7 @@ __all__ = [
     "RecommendationLog",
     "ForecastCache",
     "UploadEvent",
+    "ShopifyStore",
+    "ShopifyWebhookEvent",
 ]
 
