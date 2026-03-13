@@ -1,0 +1,13 @@
+client_id = "190d1bc8c687a3ec417425bd7c45f0af"
+name = "MarketPulse AI"
+application_url = "http://localhost:8000"
+embedded = false
+
+[access_scopes]
+scopes = "read_products,read_orders,read_inventory"
+
+[auth]
+redirect_urls = ["http://localhost:8000/shopify/callback"]
+
+[webhooks]
+api_version = "2026-01"

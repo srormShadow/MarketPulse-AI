@@ -24,6 +24,7 @@ class ShopifyStoreResponse(BaseModel):
     """Public representation of a connected Shopify store."""
 
     id: int
+    organization_id: int | None = None
     shop_domain: str
     scope: str
     is_active: bool

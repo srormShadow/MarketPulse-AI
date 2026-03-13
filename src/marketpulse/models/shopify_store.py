@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from marketpulse.db.base import Base
@@ -16,6 +16,9 @@ class ShopifyStore(Base):
     __tablename__ = "shopify_stores"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    organization_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("organizations.id"), nullable=True, index=True,
+    )
     shop_domain: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     access_token: Mapped[str] = mapped_column(Text, nullable=False)
     scope: Mapped[str] = mapped_column(String(500), nullable=False, default="")

@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import html
 import hmac
 import json
 import logging
@@ -14,9 +15,10 @@ import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from marketpulse.core.auth import get_current_user
 from marketpulse.core.config import get_settings
 from marketpulse.core.rate_limit import limiter
-from marketpulse.core.security import verify_api_key
+from marketpulse.core.security import verify_api_key, require_csrf
 from marketpulse.db.get_repo import get_repo
 from marketpulse.schemas.shopify import (
     ShopifyInstallRequest,
@@ -60,33 +62,14 @@ def _validate_shopify_configured() -> None:
         )
 
 
-def _validate_local_redirect_uri_consistency(request: Request, redirect_uri: str) -> None:
-    """Fail fast in local development if OAuth starts on one port and callbacks return to another."""
-    request_url = request.url
-    request_port = request_url.port or (443 if request_url.scheme == "https" else 80)
-    parsed_redirect = urlparse(redirect_uri)
-    redirect_port = parsed_redirect.port or (443 if parsed_redirect.scheme == "https" else 80)
-    local_hosts = {"127.0.0.1", "localhost"}
-
-    if request_url.hostname in local_hosts and parsed_redirect.hostname in local_hosts and request_port != redirect_port:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Local Shopify OAuth is misconfigured. "
-                "SHOPIFY_REDIRECT_URI must point to the same backend port that started the flow. "
-                f"Current request uses {request_port}, but redirect URI uses {redirect_port}. "
-                f"Set SHOPIFY_REDIRECT_URI=http://localhost:{request_port}/shopify/callback and restart the backend."
-            ),
-        )
+def _validate_local_redirect_uri_consistency(_request: Request, _redirect_uri: str) -> None:
+    """No-op in dev; Vite proxy means request port and redirect port may legitimately differ."""
 
 
 def _frontend_redirect_url(status_value: str, shop: str, *, reason: str = "", message: str = "") -> str:
     settings = get_settings()
     if settings.frontend_url:
         frontend_url = settings.frontend_url.split(",")[0].strip()
-    elif settings.shopify_redirect_uri:
-        parsed = urlparse(settings.shopify_redirect_uri)
-        frontend_url = f"{parsed.scheme}://{parsed.netloc}"
     else:
         frontend_url = "http://localhost:5173"
     params = {"tab": "data", "shopify": status_value, "shop": shop}
@@ -98,45 +81,44 @@ def _frontend_redirect_url(status_value: str, shop: str, *, reason: str = "", me
 
 
 def _oauth_callback_response(status_value: str, shop: str, *, reason: str = "", message: str = "") -> HTMLResponse:
+    """Serve an inline HTML page that posts the OAuth result back to the opener and closes itself."""
+    import json
+
+    payload = json.dumps(
+        {
+            "shopify": status_value,
+            "shop": shop,
+            "message": message,
+            "reason": reason,
+        }
+    )
     frontend_url = _frontend_redirect_url(status_value, shop, reason=reason, message=message)
-    frontend_origin = urlparse(frontend_url).scheme + "://" + urlparse(frontend_url).netloc
-    payload = {
-        "type": "shopify-oauth-result",
-        "status": status_value,
-        "shop": shop,
-        "reason": reason,
-        "message": message,
-        "redirectUrl": frontend_url,
-    }
-    payload_json = json.dumps(payload)
-    html = f"""<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Connecting Shopify...</title>
-  </head>
-  <body>
-    <script>
-      (function() {{
-        const payload = {payload_json};
-        const redirectUrl = payload.redirectUrl;
-        try {{
-          if (window.opener && !window.opener.closed) {{
-            window.opener.postMessage(payload, {json.dumps(frontend_origin)});
-            window.close();
-            return;
-          }}
-        }} catch (error) {{
-          console.error('Failed to notify MarketPulse opener', error);
-        }}
-        window.location.replace(redirectUrl);
-      }})();
-    </script>
-    <p>Returning to MarketPulse...</p>
-    <p><a href="{frontend_url}">Continue</a></p>
-  </body>
-</html>"""
-    return HTMLResponse(content=html, status_code=status.HTTP_200_OK)
+    parsed_frontend = urlparse(frontend_url)
+    frontend_origin = f"{parsed_frontend.scheme}://{parsed_frontend.netloc}"
+    page = f"""<!DOCTYPE html>
+<html><head><title>Connecting...</title></head>
+<body>
+<p style="font-family:system-ui;text-align:center;margin-top:40vh">
+  Connecting your store&hellip; this window will close automatically.
+</p>
+<script>
+try {{
+  if (window.opener && !window.opener.closed) {{
+    window.opener.postMessage({payload}, {json.dumps(frontend_origin)});
+  }}
+}} catch(e) {{}}
+setTimeout(function() {{
+  try {{ window.close(); }} catch(e) {{}}
+}}, 600);
+setTimeout(function() {{
+  if (!window.closed) {{
+    document.body.innerHTML = '<p style="font-family:system-ui;text-align:center;margin-top:40vh">'
+      + 'Store connected! You can close this window.</p>';
+  }}
+}}, 2000);
+</script>
+</body></html>"""
+    return HTMLResponse(content=page, status_code=status.HTTP_200_OK)
 
 
 def _state_signing_secret() -> bytes:
@@ -144,12 +126,14 @@ def _state_signing_secret() -> bytes:
     return settings.shopify_api_secret.encode("utf-8")
 
 
-def _encode_oauth_state(shop: str) -> str:
-    payload = {
+def _encode_oauth_state(shop: str, organization_id: int | None = None) -> str:
+    payload: dict = {
         "shop": shop,
         "iat": int(time.time()),
         "nonce": secrets.token_urlsafe(16),
     }
+    if organization_id is not None:
+        payload["org"] = organization_id
     payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("utf-8").rstrip("=")
     signature = hmac.new(_state_signing_secret(), payload_b64.encode("utf-8"), hashlib.sha256).digest()
@@ -157,7 +141,8 @@ def _encode_oauth_state(shop: str) -> str:
     return f"{payload_b64}.{signature_b64}"
 
 
-def _decode_oauth_state(state: str, expected_shop: str) -> None:
+def _decode_oauth_state(state: str, expected_shop: str) -> dict:
+    """Verify and decode the OAuth state. Returns the decoded payload dict."""
     try:
         payload_b64, signature_b64 = state.split(".", 1)
     except ValueError as exc:
@@ -181,6 +166,8 @@ def _decode_oauth_state(state: str, expected_shop: str) -> None:
 
     if issued_at <= 0 or (time.time() - issued_at) > _STATE_TTL_SECONDS:
         raise ValueError("Shopify OAuth state has expired.")
+
+    return payload
 
 
 def _validate_shop_domain(shop: str) -> str:
@@ -212,7 +199,7 @@ def _normalize_shop_input(raw: str) -> str | None:
     return clean
 
 
-def _build_authorization_url(request: Request, shop: str) -> str:
+def _build_authorization_url(request: Request, shop: str, organization_id: int | None = None) -> str:
     """Build the Shopify OAuth authorization URL for a validated shop domain."""
     settings = get_settings()
     redirect_uri = settings.shopify_redirect_uri
@@ -222,7 +209,7 @@ def _build_authorization_url(request: Request, shop: str) -> str:
             detail="SHOPIFY_REDIRECT_URI is not configured.",
         )
     _validate_local_redirect_uri_consistency(request, redirect_uri)
-    state = _encode_oauth_state(shop)
+    state = _encode_oauth_state(shop, organization_id=organization_id)
     params = urlencode(
         {
             "client_id": settings.shopify_api_key,
@@ -298,8 +285,10 @@ _ARROW_SVG = (
 
 def _render_connect_page(*, error_message: str = "", prefill: str = "") -> HTMLResponse:
     """Render the branded Shopify connect page."""
-    error_html = f'<div class="error">{error_message}</div>' if error_message else ""
-    html = f"""<!doctype html>
+    safe_error = html.escape(error_message)
+    safe_prefill = html.escape(prefill)
+    error_html = f'<div class="error">{safe_error}</div>' if safe_error else ""
+    page = f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -312,27 +301,27 @@ def _render_connect_page(*, error_message: str = "", prefill: str = "") -> HTMLR
     <div class="logo">{_LOGO_SVG}<span>MarketPulse</span></div>
     <h1>Connect your Shopify store</h1>
     <p class="subtitle">
-      Enter your store name and we'll take you to Shopify to authorize the connection.
+      Enter your store name to connect. The app must be installed on the store via the Shopify Dev Dashboard first.
     </p>
     {error_html}
     <form method="get" action="/shopify/connect">
       <div class="field">
         <input
           type="text" name="shop" placeholder="your-store"
-          value="{prefill}" required autofocus
+          value="{safe_prefill}" required autofocus
           autocomplete="off" autocapitalize="off" spellcheck="false"
         />
         <span class="suffix">.myshopify.com</span>
       </div>
-      <button type="submit" class="btn">{_ARROW_SVG} Continue to Shopify</button>
+      <button type="submit" class="btn">{_ARROW_SVG} Connect Store</button>
     </form>
     <p class="help">
-      You'll be redirected to Shopify to approve access. No passwords are shared with MarketPulse.
+      MarketPulse connects securely using Shopify's API. No passwords are shared.
     </p>
   </div>
 </body>
 </html>"""
-    return HTMLResponse(content=html, status_code=status.HTTP_200_OK)
+    return HTMLResponse(content=page, status_code=status.HTTP_200_OK)
 
 
 def _render_not_configured_page() -> HTMLResponse:
@@ -351,7 +340,7 @@ def _render_not_configured_page() -> HTMLResponse:
     <p class="subtitle">
       To connect a Shopify store, set the following environment variables and restart the backend:
     </p>
-    <code>SHOPIFY_API_KEY=your_key<br/>SHOPIFY_API_SECRET=your_secret<br/>SHOPIFY_REDIRECT_URI=your_callback_url</code>
+    <code>SHOPIFY_API_KEY=your_key<br/>SHOPIFY_API_SECRET=your_secret</code>
   </div>
 </body>
 </html>"""
@@ -359,7 +348,7 @@ def _render_not_configured_page() -> HTMLResponse:
 
 
 # ---------------------------------------------------------------------------
-# Connect page — the primary entry point for Shopify OAuth
+# Connect page — redirects to Shopify OAuth for ownership verification
 # ---------------------------------------------------------------------------
 
 
@@ -368,15 +357,15 @@ def _render_not_configured_page() -> HTMLResponse:
 async def connect_page(
     request: Request,
     shop: str = Query(default=""),
+    current_user: dict = Depends(get_current_user),
 ) -> HTMLResponse | RedirectResponse:
-    """Backend-served connect page that drives the Shopify OAuth flow.
+    """Backend-served connect page that redirects to Shopify OAuth.
 
     - No ``shop`` param → render the branded connect form.
-    - ``shop`` param provided → validate, build OAuth URL, redirect to Shopify.
+    - ``shop`` param provided → redirect to Shopify OAuth approval page.
 
-    This serves as both the direct-connect entry point (opened from the frontend
-    in a popup) and the Shopify App Store install entry point (Shopify sends
-    ``?shop=domain.myshopify.com`` automatically).
+    The store owner must log into Shopify and approve the app, which proves
+    they own the store.
     """
     if not _is_shopify_configured():
         return _render_not_configured_page()
@@ -394,11 +383,13 @@ async def connect_page(
 
     try:
         validated = _validate_shop_domain(normalized)
-        authorization_url = _build_authorization_url(request, validated)
     except HTTPException as exc:
         return _render_connect_page(error_message=str(exc.detail), prefill=raw_shop)
 
-    return RedirectResponse(url=authorization_url, status_code=status.HTTP_302_FOUND)
+    # Redirect to Shopify OAuth — the store owner must approve.
+    organization_id = current_user.get("organization_id")
+    authorization_url = _build_authorization_url(request, validated, organization_id=organization_id)
+    return RedirectResponse(url=authorization_url, status_code=302)
 
 
 # ---------------------------------------------------------------------------
@@ -414,12 +405,14 @@ async def connect_page(
 async def initiate_install(
     request: Request,
     payload: ShopifyInstallRequest = Body(...),
+    current_user: dict = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
     _api_key: str = Depends(verify_api_key),
 ) -> ShopifyInstallResponse:
     """Generate a Shopify OAuth authorization URL (programmatic API)."""
     _validate_shopify_configured()
     shop = _validate_shop_domain(payload.shop_domain)
-    authorization_url = _build_authorization_url(request, shop)
+    authorization_url = _build_authorization_url(request, shop, organization_id=current_user.get("organization_id"))
     return ShopifyInstallResponse(authorization_url=authorization_url)
 
 
@@ -454,7 +447,7 @@ async def oauth_callback(
             )
 
     try:
-        _decode_oauth_state(state, shop)
+        state_payload = _decode_oauth_state(state, shop)
     except ValueError:
         logger.warning("Invalid OAuth state received for shop=%s", shop, exc_info=True)
         return _oauth_callback_response(
@@ -465,6 +458,16 @@ async def oauth_callback(
                 "Invalid Shopify OAuth state. Restart the connection from MarketPulse and "
                 "complete the newest Shopify approval tab only."
             ),
+        )
+
+    # Extract the organization_id that was embedded in the signed state
+    organization_id = state_payload.get("org")
+    if organization_id is None:
+        return _oauth_callback_response(
+            "error",
+            shop,
+            reason="missing_tenant_context",
+            message="Shopify OAuth state is missing tenant context. Restart the connection from your account.",
         )
 
     token_url = f"https://{shop}/admin/oauth/access_token"
@@ -498,19 +501,79 @@ async def oauth_callback(
             message="Shopify did not return an access token.",
         )
 
-    existing = repo.get_shopify_store_by_domain(shop)
-    if existing:
-        repo.update_shopify_store_token(shop, access_token, scope)
-        store_id = existing["id"]
+    if hasattr(repo, "upsert_shopify_store"):
+        store = repo.upsert_shopify_store(shop, access_token, scope, organization_id=organization_id)  # type: ignore[attr-defined]
+        store_id = store.get("id")
     else:
-        store = repo.create_shopify_store(shop, access_token, scope)
-        store_id = store["id"]
+        existing = repo.get_shopify_store_by_domain(shop)
+        if existing:
+            repo.update_shopify_store_token(shop, access_token, scope)
+            store_id = existing["id"]
+        else:
+            store = repo.create_shopify_store(shop, access_token, scope, organization_id=organization_id)
+            store_id = store["id"]
 
-    logger.info("Shopify store connected via OAuth: shop=%s store_id=%d", shop, store_id)
+    logger.info("Shopify store connected via OAuth: shop=%s store_id=%s org_id=%s", shop, store_id, organization_id)
     return _oauth_callback_response(
         "connected",
         shop,
         message="Shopify store connected successfully.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Secure OAuth initiation (frontend calls this to get the authorization URL)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/shopify/connect-oauth", response_model=None)
+@limiter.limit("10/minute")
+async def initiate_oauth_connect(
+    request: Request,
+    payload: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+) -> JSONResponse:
+    """Generate a Shopify OAuth authorization URL for the authenticated user.
+
+    The user's organization_id is embedded in the cryptographically signed
+    OAuth state, so the callback can associate the store with the correct org.
+    The store owner must then log into Shopify and approve — proving ownership.
+    """
+    _validate_shopify_configured()
+
+    raw_shop = str(payload.get("shop_domain", "")).strip()
+    if not raw_shop:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"status": "error", "message": "Store domain is required."},
+        )
+
+    normalized = _normalize_shop_input(raw_shop)
+    if not normalized or not normalized.endswith(".myshopify.com"):
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"status": "error", "message": "Invalid shop domain. Must end with .myshopify.com"},
+        )
+
+    try:
+        validated = _validate_shop_domain(normalized)
+    except HTTPException as exc:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"status": "error", "message": str(exc.detail)},
+        )
+
+    organization_id = current_user.get("organization_id")
+    authorization_url = _build_authorization_url(request, validated, organization_id=organization_id)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "status": "ok",
+            "authorization_url": authorization_url,
+            "shop_domain": validated,
+        },
     )
 
 
@@ -525,10 +588,12 @@ async def oauth_callback(
 )
 async def list_stores(
     repo: "DataRepository" = Depends(get_repo),
-    _api_key: str = Depends(verify_api_key),
+    current_user: dict = Depends(get_current_user),
 ) -> ShopifyStoreListResponse:
-    """List connected Shopify stores."""
-    stores = repo.list_shopify_stores()
+    """List connected Shopify stores scoped to the user's organization."""
+    # Admins see all stores; retailers see only their org's stores
+    org_id = None if current_user.get("role") == "admin" else current_user.get("organization_id")
+    stores = repo.list_shopify_stores(organization_id=org_id)
     return ShopifyStoreListResponse(
         stores=[ShopifyStoreResponse(**store) for store in stores],
         total=len(stores),
@@ -539,12 +604,16 @@ async def list_stores(
 async def disconnect_store(
     store_id: int,
     repo: "DataRepository" = Depends(get_repo),
-    _api_key: str = Depends(verify_api_key),
+    current_user: dict = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
 ) -> JSONResponse:
-    """Disconnect a Shopify store."""
+    """Disconnect a Shopify store (only if owned by the user's org)."""
     store = repo.get_shopify_store(store_id)
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+    # Enforce ownership: retailers can only disconnect their own org's stores
+    if current_user.get("role") != "admin" and store.get("organization_id") != current_user.get("organization_id"):
+        raise HTTPException(status_code=403, detail="You do not own this store")
     repo.deactivate_shopify_store(store["shop_domain"])
     return JSONResponse(content={"status": "disconnected", "store_id": store_id})
 
@@ -564,12 +633,16 @@ async def trigger_sync(
     store_id: int,
     payload: ShopifySyncRequest | None = Body(default=None),
     repo: "DataRepository" = Depends(get_repo),
-    _api_key: str = Depends(verify_api_key),
+    current_user: dict = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
 ) -> ShopifySyncResponse | JSONResponse:
-    """Trigger a manual sync from a connected Shopify store."""
+    """Trigger a manual sync from a connected Shopify store (org-scoped)."""
     store_summary = repo.get_shopify_store(store_id)
     if not store_summary:
         raise HTTPException(status_code=404, detail="Store not found")
+    # Enforce ownership
+    if current_user.get("role") != "admin" and store_summary.get("organization_id") != current_user.get("organization_id"):
+        raise HTTPException(status_code=403, detail="You do not own this store")
     if not store_summary.get("is_active"):
         raise HTTPException(status_code=400, detail="Store is disconnected")
 
@@ -579,25 +652,34 @@ async def trigger_sync(
 
     access_token = str(store_full["access_token"]).strip()
     sync_params = payload or ShopifySyncRequest()
+    scoped_repo = repo.with_organization(store_summary.get("organization_id")) if hasattr(repo, "with_organization") else repo
 
     try:
         result = run_full_sync(
-            repo=repo,
+            repo=scoped_repo,
             store_id=store_id,
             shop_domain=store_full["shop_domain"],
             access_token=access_token,
+            organization_id=store_summary.get("organization_id"),
             sync_products=sync_params.sync_products,
             sync_orders=sync_params.sync_orders,
             orders_days_back=sync_params.orders_days_back,
         )
     except httpx.HTTPStatusError as exc:
-        logger.exception("Shopify sync rejected by upstream API for store_id=%d", store_id)
         upstream_status = exc.response.status_code
+        upstream_body = exc.response.text[:500] if exc.response.text else "(empty)"
+        logger.error(
+            "Shopify sync rejected: store_id=%d status=%d url=%s body=%s",
+            store_id, upstream_status, str(exc.request.url), upstream_body,
+        )
         if upstream_status in {401, 403}:
             detail = (
-                "Shopify rejected the sync request. Verify this app is installed on the same store "
-                "and has the required Admin API scopes: read_products, read_orders, read_inventory. "
-                "If you changed scopes in Shopify, reinstall the app before syncing again."
+                f"Shopify rejected the sync request (HTTP {upstream_status}). "
+                "This usually means the access token is invalid or the app lacks the required "
+                "Admin API scopes (read_products, read_orders, read_inventory). "
+                "Try: Disconnect the store, reinstall the app from Shopify, and reconnect. "
+                f"API version: {get_settings().shopify_api_version}. "
+                f"Shopify response: {upstream_body[:200]}"
             )
         else:
             detail = f"Shopify API request failed with status {upstream_status} during sync."
@@ -663,19 +745,21 @@ async def handle_webhook(
     except (json.JSONDecodeError, ValueError):
         return JSONResponse(status_code=400, content={"status": "invalid payload"})
 
+    if webhook_id:
+        repo.record_webhook_event(webhook_id, topic, shop_domain)
+
     if topic == "app/uninstalled":
         repo.deactivate_shopify_store(shop_domain)
         logger.info("Shopify store uninstalled: %s", shop_domain)
     elif topic in ("orders/create", "orders/updated"):
         store = repo.get_shopify_store_by_domain(shop_domain)
         if store and store.get("is_active"):
-            sync_orders_to_sales(repo, store["id"], [payload])
+            scoped_repo = repo.with_organization(store.get("organization_id")) if hasattr(repo, "with_organization") else repo
+            sync_orders_to_sales(scoped_repo, store["id"], [payload], organization_id=store.get("organization_id"))
     elif topic == "products/update":
         store = repo.get_shopify_store_by_domain(shop_domain)
         if store and store.get("is_active"):
-            sync_products_to_skus(repo, store["id"], [payload])
-
-    if webhook_id:
-        repo.record_webhook_event(webhook_id, topic, shop_domain)
+            scoped_repo = repo.with_organization(store.get("organization_id")) if hasattr(repo, "with_organization") else repo
+            sync_products_to_skus(scoped_repo, store["id"], [payload], organization_id=store.get("organization_id"))
 
     return JSONResponse(content={"status": "ok"})

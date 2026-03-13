@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from marketpulse.core.resilience import shopify_retry
+
 from marketpulse.core.config import get_settings
 
 if TYPE_CHECKING:
@@ -66,6 +68,7 @@ def _map_product_type_to_category(product_type: str) -> str:
     return normalized or "General"
 
 
+@shopify_retry
 def fetch_products(
     shop_domain: str,
     access_token: str,
@@ -87,6 +90,7 @@ def fetch_products(
     return products
 
 
+@shopify_retry
 def fetch_orders(
     shop_domain: str,
     access_token: str,
@@ -117,6 +121,7 @@ def sync_products_to_skus(
     repo: DataRepository,
     store_id: int,
     products: list[dict[str, Any]],
+    organization_id: int | None = None,
 ) -> int:
     """Convert Shopify products into SKU records and upsert them.
 
@@ -152,6 +157,7 @@ def sync_products_to_skus(
                 "data_source": "shopify",
                 "source_store_id": store_id,
                 "external_id": str(variant.get("id", "")),
+                "organization_id": organization_id,
             })
 
     if not records:
@@ -173,6 +179,7 @@ def sync_orders_to_sales(
     repo: DataRepository,
     store_id: int,
     orders: list[dict[str, Any]],
+    organization_id: int | None = None,
 ) -> int:
     """Convert Shopify orders into daily Sales records and upsert them.
 
@@ -229,6 +236,7 @@ def sync_orders_to_sales(
             "data_source": "shopify",
             "source_store_id": store_id,
             "external_id": f"{date_str}#{sku_id}",
+            "organization_id": organization_id,
         })
 
     if not records:
@@ -246,6 +254,7 @@ def run_full_sync(
     store_id: int,
     shop_domain: str,
     access_token: str,
+    organization_id: int | None = None,
     sync_products: bool = True,
     sync_orders: bool = True,
     orders_days_back: int = 90,
@@ -261,12 +270,12 @@ def run_full_sync(
     if sync_products:
         products = fetch_products(shop_domain, access_token)
         result["products_synced"] = len(products)
-        result["skus_created"] = sync_products_to_skus(repo, store_id, products)
+        result["skus_created"] = sync_products_to_skus(repo, store_id, products, organization_id=organization_id)
 
     if sync_orders:
         orders = fetch_orders(shop_domain, access_token, days_back=orders_days_back)
         result["orders_synced"] = len(orders)
-        result["sales_records_created"] = sync_orders_to_sales(repo, store_id, orders)
+        result["sales_records_created"] = sync_orders_to_sales(repo, store_id, orders, organization_id=organization_id)
 
     repo.update_shopify_last_synced(store_id)
     return result
