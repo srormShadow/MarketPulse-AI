@@ -8,6 +8,7 @@ import {
   ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell,
 } from 'recharts';
 import GlassCard from '../components/ui/GlassCard';
+import EmptyDashboardState from '../components/EmptyDashboardState';
 import { apiClient, simulateDiscount } from '../api/client';
 import { useInventory } from '../context/inventoryStore';
 
@@ -67,8 +68,8 @@ const toSafeIso = (v) => {
 };
 
 const CategoryIntelligence = () => {
-  const { categories: CATEGORIES, inventory: INVENTORY, leadTimes: LEAD_TIMES } = useInventory();
-  const [selectedCategory, setSelectedCategory] = useState('Snacks');
+  const { categories: CATEGORIES, inventory: INVENTORY, leadTimes: LEAD_TIMES, onboarding, loading: inventoryLoading } = useInventory();
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [forecastResponse, setForecastResponse] = useState(null);
   const [festivals, setFestivals] = useState([]);
   const [insight, setInsight] = useState('');
@@ -86,6 +87,14 @@ const CategoryIntelligence = () => {
   const [simulationResult, setSimulationResult] = useState(null);
 
   useEffect(() => {
+    if (!CATEGORIES.length) {
+      setForecastLoading(false);
+      return undefined;
+    }
+    if (!selectedCategory || !CATEGORIES.includes(selectedCategory)) {
+      setSelectedCategory(CATEGORIES[0]);
+      return undefined;
+    }
     let cancelled = false;
 
     const loadCategoryData = async () => {
@@ -261,6 +270,14 @@ const CategoryIntelligence = () => {
     }));
   }, [featureInfluence]);
 
+  if (inventoryLoading) {
+    return <div className="text-sm text-[var(--text-3)]">Loading workspace...</div>;
+  }
+
+  if (!CATEGORIES.length) {
+    return <EmptyDashboardState onboarding={onboarding} title="Category intelligence appears after your first data sync." />;
+  }
+
   if (forecastLoading) {
     return <div className="text-sm text-[var(--text-3)]">Loading category intelligence...</div>;
   }
@@ -300,7 +317,7 @@ const CategoryIntelligence = () => {
             className="appearance-none bg-[var(--bg-soft)] text-[var(--text-1)] border border-[var(--border)] rounded-xl pl-10 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/30 text-sm font-semibold transition-all cursor-pointer w-56"
           >
             {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>{cat}</option>
+              <option key={cat} value={cat} className="bg-[#1a1f2e] text-[#e2e8f0]">{cat}</option>
             ))}
           </select>
           <ChevronDown size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] pointer-events-none" />

@@ -1,4 +1,4 @@
-﻿from functools import lru_cache
+from functools import lru_cache
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,6 +46,24 @@ class Settings(BaseSettings):
     environment: str = "development"
     upload_max_size_mb: int = 10
 
+    # JWT Authentication
+    jwt_secret: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 480  # 8 hours
+    session_cookie_name: str = "mp_session"
+    session_cookie_secure: bool = False
+    shopify_token_encryption_key: str = ""
+
+    # Seed users (for initial setup / demos). Override via env in non-dev.
+    seed_admin_email: str = "admin@marketpulse.ai"
+    seed_admin_password: str = ""
+    seed_retailer_email: str = "retailer@demo.com"
+    seed_retailer_password: str = ""
+    enable_dev_seed_users: bool = False
+
+    # Redis (optional caching layer)
+    redis_url: str = ""
+
     log_level: str = "INFO"
     log_format: str = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
@@ -54,7 +72,7 @@ class Settings(BaseSettings):
     shopify_api_secret: str = ""
     shopify_scopes: str = "read_products,read_orders,read_inventory"
     shopify_redirect_uri: str = ""
-    shopify_api_version: str = "2024-10"
+    shopify_api_version: str = "2025-10"
     shopify_default_cost_ratio: float = 0.6
     shopify_max_cost_ratio: float = 0.99
     shopify_api_timeout: float = 30.0

@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts';
 import GlassCard from '../components/ui/GlassCard';
+import EmptyDashboardState from '../components/EmptyDashboardState';
 import FestivalCalendar from '../components/festival/FestivalCalendar';
 import { apiClient } from '../api/client';
 import { useInventory } from '../context/inventoryStore';
@@ -34,7 +35,7 @@ const readinessStyle = (status) => {
 };
 
 const FestivalIntelligence = () => {
-  const { categories: CATEGORIES, inventory: INVENTORY, leadTimes: LEAD_TIMES } = useInventory();
+  const { categories: CATEGORIES, inventory: INVENTORY, leadTimes: LEAD_TIMES, onboarding, loading: inventoryLoading } = useInventory();
   const [festivals, setFestivals] = useState([]);
   const [forecastRows, setForecastRows] = useState([]);
   const [diagnosticsAll, setDiagnosticsAll] = useState(null);
@@ -43,6 +44,11 @@ const FestivalIntelligence = () => {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!CATEGORIES.length) {
+      setForecastRows([]);
+      setLoading(false);
+      return undefined;
+    }
     let cancelled = false;
 
     const loadData = async () => {
@@ -87,6 +93,14 @@ const FestivalIntelligence = () => {
     loadData();
     return () => { cancelled = true; };
   }, [CATEGORIES, INVENTORY, LEAD_TIMES]);
+
+  if (inventoryLoading) {
+    return <div className="text-sm text-[var(--text-3)]">Loading workspace...</div>;
+  }
+
+  if (!CATEGORIES.length) {
+    return <EmptyDashboardState onboarding={onboarding} title="Festival readiness needs live catalog and sales data." />;
+  }
 
   const upcoming60 = useMemo(() => {
     const now = startOfDay(new Date());
@@ -150,9 +164,9 @@ const FestivalIntelligence = () => {
       }));
     }
 
-    return CATEGORIES.map((category, idx) => ({
+    return CATEGORIES.map((category) => ({
       category,
-      value: [0.19, 0.11, 0.25][idx],
+      value: 0.15,
     }));
   }, [CATEGORIES, diagnosticsAll]);
 

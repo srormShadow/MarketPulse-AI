@@ -11,6 +11,7 @@ import GlassCard from '../components/ui/GlassCard';
 import StatCard from '../components/ui/StatCard';
 import RiskDrawer from '../components/ui/RiskDrawer';
 import FestivalCalendar from '../components/festival/FestivalCalendar';
+import EmptyDashboardState from '../components/EmptyDashboardState';
 import { apiClient } from '../api/client';
 import { useInventory } from '../context/inventoryStore';
 
@@ -69,13 +70,18 @@ const ActionBadge = ({ action }) => (
 );
 
 const PortfolioOverview = () => {
-  const { categories, inventory, leadTimes } = useInventory();
+  const { categories, inventory, leadTimes, onboarding, loading: inventoryLoading } = useInventory();
   const [drawerRow, setDrawerRow] = useState(null);
   const [forecastRows, setForecastRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!categories.length) {
+      setForecastRows([]);
+      setLoading(false);
+      return undefined;
+    }
     let cancelled = false;
 
     const loadPortfolio = async () => {
@@ -209,6 +215,14 @@ const PortfolioOverview = () => {
       message: '0 categories need ordering, 0 critical - all categories are MONITOR/MAINTAIN',
     };
   }, [derived.action]);
+
+  if (inventoryLoading) {
+    return <div className="text-sm text-[var(--text-3)]">Loading workspace...</div>;
+  }
+
+  if (!categories.length) {
+    return <EmptyDashboardState onboarding={onboarding} />;
+  }
 
   if (loading) {
     return <div className="text-sm text-[var(--text-3)]">Loading portfolio data...</div>;

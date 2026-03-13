@@ -9,6 +9,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
+      '/auth': 'http://localhost:8000',
+      '/admin': 'http://localhost:8000',
       '/shopify': 'http://localhost:8000',
       '/upload_csv': 'http://localhost:8000',
       '/seed_demo': 'http://localhost:8000',

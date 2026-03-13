@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Query
 
+from marketpulse.core.auth import get_current_user
 from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
 
@@ -35,9 +36,11 @@ def _extract_action_and_order(insight: str) -> tuple[str, int]:
 def recent_recommendations(
     limit: int = Query(default=10, ge=1, le=100),
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
-    rows = repo.list_recent_recommendations(limit=limit)
+    scoped_repo = repo.with_organization(current_user.get("organization_id")) if hasattr(repo, "with_organization") else repo
+    rows = scoped_repo.list_recent_recommendations(limit=limit)
     items: list[dict[str, Any]] = []
 
     for row in rows:

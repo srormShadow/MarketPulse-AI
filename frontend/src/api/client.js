@@ -9,6 +9,7 @@ export const API_BASE_URL = normalizedBaseUrl;
 export const apiClient = axios.create({
   baseURL: normalizedBaseUrl || undefined,
   timeout: 30000,
+  withCredentials: true,
   headers: apiKey ? { "X-API-Key": apiKey } : {},
 });
 

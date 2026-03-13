@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Body, Depends, Request
 
+from marketpulse.core.auth import get_current_user
 from marketpulse.core.rate_limit import limiter
 from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
@@ -70,17 +71,19 @@ async def generate_batch_insights(
     request: Request,
     raw_body: dict | None = Body(default=None),
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
 ) -> BatchInsightResponse:
     """Generate Bedrock insights for multiple categories in one request."""
     body = BatchInsightRequest.model_validate(raw_body or {})
+    scoped_repo = repo.with_organization(current_user.get("organization_id")) if hasattr(repo, "with_organization") else repo
     now = datetime.now(timezone.utc)
     results: list[InsightResponse] = []
 
     for item in body.items:
         risk = _risk_score(item.decision_data)
         try:
-            cached = repo.get_cached_recommendation(
+            cached = scoped_repo.get_cached_recommendation(
                 category=item.category,
                 risk_score=risk,
                 max_age_seconds=3600,
@@ -98,7 +101,7 @@ async def generate_batch_insights(
             )
             continue
 
-        festival_context = _resolve_festival_context(repo, item.festival_context)
+        festival_context = _resolve_festival_context(scoped_repo, item.festival_context)
         insight = generate_category_insight(
             category=item.category,
             forecast_data=item.forecast_data,
@@ -107,7 +110,7 @@ async def generate_batch_insights(
         )
         generated_at = datetime.now(timezone.utc)
         try:
-            repo.log_recommendation(
+            scoped_repo.log_recommendation(
                 category=item.category,
                 risk_score=risk,
                 insight=insight,
@@ -136,13 +139,15 @@ async def generate_insight_for_category(
     category: str,
     raw_body: dict | None = Body(default=None),
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
 ) -> InsightResponse:
     """Generate one Bedrock insight for a category with cache-aware behavior."""
     body = InsightRequest.model_validate(raw_body or {})
+    scoped_repo = repo.with_organization(current_user.get("organization_id")) if hasattr(repo, "with_organization") else repo
     risk = _risk_score(body.decision_data)
     try:
-        cached = repo.get_cached_recommendation(
+        cached = scoped_repo.get_cached_recommendation(
             category=category,
             risk_score=risk,
             max_age_seconds=3600,
@@ -157,7 +162,7 @@ async def generate_insight_for_category(
             generated_at=str(cached.get("generated_at", datetime.now(timezone.utc).isoformat())),
         )
 
-    festival_context = _resolve_festival_context(repo, body.festival_context)
+    festival_context = _resolve_festival_context(scoped_repo, body.festival_context)
     insight = generate_category_insight(
         category=category,
         forecast_data=body.forecast_data,
@@ -166,7 +171,7 @@ async def generate_insight_for_category(
     )
     generated_at = datetime.now(timezone.utc)
     try:
-        repo.log_recommendation(
+        scoped_repo.log_recommendation(
             category=category,
             risk_score=risk,
             insight=insight,

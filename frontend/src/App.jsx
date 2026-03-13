@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   BrainCircuit,
@@ -12,12 +13,14 @@ import {
   Activity,
   ChevronRight,
   Menu,
+  LogOut,
 } from 'lucide-react';
 import PortfolioOverview from './pages/PortfolioOverview';
 import CategoryIntelligence from './pages/CategoryIntelligence';
 import DataManagement from './pages/DataManagement';
 import FestivalIntelligence from './pages/FestivalIntelligence';
 import { API_BASE_URL, healthCheck } from './api/client';
+import { useAuth } from './context/AuthContext';
 
 const tabs = [
   { id: 'portfolio', label: 'Dashboard', sub: 'Portfolio Overview', icon: LayoutDashboard },
@@ -44,6 +47,27 @@ const App = () => {
   const [connectionChecked, setConnectionChecked] = useState(false);
   const [theme, setTheme] = useState(getInitialTheme);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  // Handle fallback: if the popup couldn't close and redirected here with shopify params, clean the URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('shopify')) {
+      // Remove shopify params from the URL so they don't persist on refresh
+      params.delete('shopify');
+      params.delete('shop');
+      params.delete('message');
+      params.delete('reason');
+      const clean = params.toString();
+      window.history.replaceState({}, '', clean ? `?${clean}` : window.location.pathname);
+    }
+  }, []);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -125,10 +149,21 @@ const App = () => {
             })}
           </nav>
 
-          <div className="absolute bottom-6 left-5 right-5 rounded-2xl bg-black/28 p-3 ring-1 ring-white/28 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-white/80">System</p>
-            <p className="mt-1 text-sm font-semibold">Retail Forecasting Active</p>
-            <p className="mt-1 text-xs text-white/78">Live intelligence and inventory optimization.</p>
+          <div className="absolute bottom-6 left-5 right-5 space-y-2">
+            {user && (
+              <div className="rounded-2xl bg-black/28 p-3 ring-1 ring-white/28 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/80">Signed in</p>
+                <p className="mt-1 text-sm font-semibold truncate">{user.email}</p>
+                <p className="mt-0.5 text-xs text-white/78 capitalize">{user.role}</p>
+              </div>
+            )}
+            <button
+              onClick={handleLogout}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-colors"
+            >
+              <LogOut size={14} />
+              Logout
+            </button>
           </div>
         </aside>
 

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from marketpulse.core.auth import get_current_user
 from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
 from marketpulse.services.model_diagnostics import analyze_category_model
@@ -35,20 +36,22 @@ def _discover_categories(repo: "DataRepository") -> list[str]:
 def all_diagnostics(
     categories: str | None = Query(default=None, description="Comma-separated categories", max_length=500),
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     """Return diagnostics for all discovered categories."""
+    scoped_repo = repo.with_organization(current_user.get("organization_id")) if hasattr(repo, "with_organization") else repo
     target_categories = (
         [c.strip() for c in categories.split(",") if c.strip()]
         if categories
-        else _discover_categories(repo)
+        else _discover_categories(scoped_repo)
     )
     out: dict[str, Any] = {}
     items: list[dict[str, Any]] = []
 
     for category in target_categories:
         try:
-            result = analyze_category_model(repo, category)
+            result = analyze_category_model(scoped_repo, category)
             payload = {
                 "coefficients": result.get("coefficients", {}),
                 "feature_influence": result.get("feature_importance", {}),
@@ -72,11 +75,13 @@ def all_diagnostics(
 def category_diagnostics(
     category: str,
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     """Return model coefficients and feature influence for one category."""
     try:
-        result = analyze_category_model(repo, category)
+        scoped_repo = repo.with_organization(current_user.get("organization_id")) if hasattr(repo, "with_organization") else repo
+        result = analyze_category_model(scoped_repo, category)
     except ValueError as exc:
         logger.warning("Diagnostics not found for category=%s: %s", category, str(exc))
         raise HTTPException(status_code=404, detail="Category not found or insufficient data for diagnostics.") from exc

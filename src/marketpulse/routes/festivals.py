@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Query
 
+from marketpulse.core.auth import get_current_user
+from marketpulse.core.cache import cache
 from marketpulse.db.get_repo import get_repo
 
 if TYPE_CHECKING:
@@ -20,6 +22,7 @@ router = APIRouter(tags=["festivals"])
 @router.get("/festivals", response_model=FestivalListResponse)
 def list_festivals(
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     month: int | None = Query(default=None, ge=1, le=12),
     year: int | None = Query(default=None, ge=2024, le=2100),
 ) -> FestivalListResponse:
@@ -29,6 +32,11 @@ def list_festivals(
     frontend receives one card with distinct per-category uplift values.
     """
     today = date_type.today()
+    cache_key = f"festivals:all:{month}:{year}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return FestivalListResponse(**cached)
+
     rows = repo.list_all_festivals()
 
     grouped: dict[tuple[str, date_type], dict[str, Any]] = {}
@@ -81,7 +89,9 @@ def list_festivals(
         )
 
     items.sort(key=lambda x: x.date)
-    return FestivalListResponse(total=len(items), items=items)
+    result = FestivalListResponse(total=len(items), items=items)
+    cache.set(cache_key, result.model_dump(mode="json"), ttl=600)
+    return result
 
 
 def _find_festival_for_date(rows: list[dict[str, Any]], target_date: date_type) -> dict[str, Any] | None:
@@ -98,9 +108,11 @@ def get_prediction(
     date: date_type = Query(..., description="Target date in YYYY-MM-DD"),
     stock: str = Query(..., min_length=1, description="Stock/category name"),
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Return lightweight prediction payload for calendar date click sidebar."""
-    series = repo.get_category_daily_sales(stock)
+    scoped_repo = repo.with_organization(current_user.get("organization_id")) if hasattr(repo, "with_organization") else repo
+    series = scoped_repo.get_category_daily_sales(stock, organization_id=current_user.get("organization_id"))
     festivals = repo.list_all_festivals()
     festival_row = _find_festival_for_date(festivals, date)
 
@@ -150,9 +162,11 @@ def get_historical(
     date: date_type = Query(..., description="Target date in YYYY-MM-DD"),
     stock: str = Query(..., min_length=1, description="Stock/category name"),
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Return same-day historical comparison for last two years."""
-    series = repo.get_category_daily_sales(stock)
+    scoped_repo = repo.with_organization(current_user.get("organization_id")) if hasattr(repo, "with_organization") else repo
+    series = scoped_repo.get_category_daily_sales(stock, organization_id=current_user.get("organization_id"))
     if series.empty:
         return {
             str(date.year - 1): None,

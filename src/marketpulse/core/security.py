@@ -3,7 +3,7 @@
 import logging
 import secrets
 
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 
 from marketpulse.core.config import get_settings
@@ -41,3 +41,25 @@ def verify_api_key(
         )
 
     return api_key
+
+
+def require_csrf(request: Request) -> None:
+    """Validate CSRF via custom-header pattern.
+
+    The ``X-CSRF-Token`` header cannot be set cross-origin without CORS
+    approval, so its presence (combined with locked-down CORS origins)
+    is sufficient CSRF protection.
+    """
+    csrf_header = request.headers.get("X-CSRF-Token")
+    csrf_cookie = request.cookies.get("mp_csrf")
+
+    if not csrf_header or not csrf_cookie:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF token missing.",
+        )
+    if not secrets.compare_digest(csrf_header, csrf_cookie):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF token invalid.",
+        )

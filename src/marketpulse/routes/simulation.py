@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, Depends, Path, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from marketpulse.core.auth import get_current_user
 from marketpulse.core.rate_limit import limiter
 from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
@@ -162,13 +163,16 @@ async def simulate_discount(
     category: str = Path(..., description="Product category for simulation", max_length=100),
     raw_body: dict | None = Body(default=None),
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
 ) -> DiscountSimulationResponse | JSONResponse:
     try:
         body = DiscountSimulationRequest.model_validate(raw_body or {})
     except ValidationError as exc:
         return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": exc.errors()})
-    skus = repo.get_skus_for_category(category)
+    org_id = current_user.get("organization_id")
+    scoped_repo = repo.with_organization(org_id) if org_id is not None and hasattr(repo, "with_organization") else repo
+    skus = scoped_repo.get_skus_for_category(category, organization_id=org_id)
     if not skus:
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -177,7 +181,7 @@ async def simulate_discount(
 
     try:
         baseline_df, baseline_decision = _load_or_compute_baseline(
-            repo=repo,
+            repo=scoped_repo,
             category=category,
             body=body,
         )
