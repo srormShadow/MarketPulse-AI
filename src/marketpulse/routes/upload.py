@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, File, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 
+from marketpulse.core.audit import emit as audit
 from marketpulse.core.config import get_settings
+from marketpulse.core.auth import get_current_user
 from marketpulse.core.rate_limit import limiter
-from marketpulse.core.security import verify_api_key
+from marketpulse.core.security import verify_api_key, require_csrf
 from marketpulse.db.get_repo import get_repo
 
 if TYPE_CHECKING:
@@ -38,7 +40,9 @@ async def upload_csv(
     request: Request,
     file: UploadFile = File(...),
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
+    _csrf: None = Depends(require_csrf),
 ) -> CsvUploadResponse | JSONResponse:
     """Upload SKU or Sales CSV and store it in the database."""
 
@@ -81,7 +85,12 @@ async def upload_csv(
         )
 
     try:
-        file_type, inserted, metadata = await ingest_csv(file, repo, max_bytes=max_bytes)
+        file_type, inserted, metadata = await ingest_csv(
+            file,
+            repo.with_organization(current_user.get("organization_id")) if hasattr(repo, "with_organization") else repo,
+            organization_id=current_user.get("organization_id"),
+            max_bytes=max_bytes,
+        )
     except CsvIngestionError as exc:
         errors = exc.validation_errors or [{"field": "file", "issue": exc.message}]
         return JSONResponse(
@@ -98,6 +107,7 @@ async def upload_csv(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"status": "error", "message": "Internal server error"},
         )
+    audit(action="csv_upload", request=request, user=current_user, resource=file_type, detail=f"inserted={inserted}", repo=repo)
     logger.info("Upload metadata | file_type=%s | details=%s", file_type, metadata)
 
     return CsvUploadResponse(

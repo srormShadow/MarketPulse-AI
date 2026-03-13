@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import io
 import json
-import pickle
+import joblib
 from types import SimpleNamespace
 
 import marketpulse.infrastructure.s3 as s3_utils
+
+
+def _joblib_dumps(obj):
+    """Serialize an object using joblib and return bytes."""
+    buf = io.BytesIO()
+    joblib.dump(obj, buf, compress=("zlib", 3))
+    return buf.getvalue()
 
 
 class _FakeS3Client:
@@ -43,7 +50,7 @@ def test_load_model_skips_insecure_pickle_in_production(monkeypatch):
 
 def test_load_model_returns_none_on_signature_mismatch(monkeypatch):
     payload_obj = {"model": "demo"}
-    payload = pickle.dumps(payload_obj)
+    payload = _joblib_dumps(payload_obj)
     bad_signature = json.dumps({"algo": "hmac-sha256", "digest": "deadbeef"}).encode("utf-8")
     objects = {
         "snacks/latest.pkl": payload,
@@ -56,7 +63,7 @@ def test_load_model_returns_none_on_signature_mismatch(monkeypatch):
 
 def test_load_model_returns_object_when_signature_valid(monkeypatch):
     payload_obj = {"model": "demo"}
-    payload = pickle.dumps(payload_obj)
+    payload = _joblib_dumps(payload_obj)
     algo, digest = s3_utils._signature_for_payload(payload, "secret-key")
     signature = json.dumps({"algo": algo, "digest": digest}).encode("utf-8")
     objects = {

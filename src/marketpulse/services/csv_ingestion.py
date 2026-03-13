@@ -58,6 +58,7 @@ class CsvIngestionError(Exception):
 async def ingest_csv(
     file: UploadFile,
     repo: DataRepository,
+    organization_id: int | None = None,
     max_bytes: int = 10 * 1024 * 1024,
 ) -> tuple[str, int, dict[str, object]]:
     """Ingest a CSV upload as SKU master or Sales data."""
@@ -111,9 +112,9 @@ async def ingest_csv(
 
     try:
         if file_type == "sales":
-            inserted = _upsert_sales(dataframe, repo, metrics)
+            inserted = _upsert_sales(dataframe, repo, metrics, organization_id=organization_id)
         else:
-            inserted = _upsert_skus(dataframe, repo, metrics)
+            inserted = _upsert_skus(dataframe, repo, metrics, organization_id=organization_id)
         repo.commit()
     except CsvIngestionError:
         repo.rollback()
@@ -199,11 +200,14 @@ def _normalize_sku_series(series: pd.Series) -> pd.Series:
 
 
 def _normalize_text_series(series: pd.Series) -> pd.Series:
-    return (
+    normalized = (
         series.astype(str)
         .map(_clean_hidden_chars)
         .str.replace(r"\s+", " ", regex=True)
         .str.strip()
+    )
+    return normalized.map(
+        lambda value: f"'{value}" if value and value[0] in {"=", "+", "-", "@"} else value
     )
 
 
@@ -217,7 +221,7 @@ def _drop_exact_duplicates(frame: pd.DataFrame, metrics: IngestionMetrics) -> pd
     return deduped
 
 
-def _upsert_skus(dataframe: pd.DataFrame, repo: DataRepository, metrics: IngestionMetrics) -> int:
+def _upsert_skus(dataframe: pd.DataFrame, repo: DataRepository, metrics: IngestionMetrics, organization_id: int | None = None) -> int:
     frame = _drop_exact_duplicates(dataframe.copy(), metrics)
 
     frame["sku_id"] = _normalize_sku_series(frame["sku_id"])
@@ -274,12 +278,13 @@ def _upsert_skus(dataframe: pd.DataFrame, repo: DataRepository, metrics: Ingesti
     ].to_dict(orient="records")
     for rec in records:
         rec["data_source"] = "csv"
+        rec["organization_id"] = organization_id
 
     repo.upsert_skus(records)
     return len(records)
 
 
-def _upsert_sales(dataframe: pd.DataFrame, repo: DataRepository, metrics: IngestionMetrics) -> int:
+def _upsert_sales(dataframe: pd.DataFrame, repo: DataRepository, metrics: IngestionMetrics, organization_id: int | None = None) -> int:
     frame = _drop_exact_duplicates(dataframe.copy(), metrics)
 
     frame["sku_id"] = _normalize_sku_series(frame["sku_id"])
@@ -318,7 +323,8 @@ def _upsert_sales(dataframe: pd.DataFrame, repo: DataRepository, metrics: Ingest
     if removed_logical > 0:
         logger.info("Logical Sales duplicates removed | count=%s", removed_logical)
 
-    existing_skus = repo.sku_ids_exist(valid_frame["sku_id"].unique().tolist())
+    scoped_repo = repo.with_organization(organization_id) if organization_id is not None and hasattr(repo, "with_organization") else repo
+    existing_skus = scoped_repo.sku_ids_exist(valid_frame["sku_id"].unique().tolist())
     unknown_sku_mask = ~valid_frame["sku_id"].isin(existing_skus)
     unknown_dropped = int(unknown_sku_mask.sum())
     if unknown_dropped > 0:
@@ -339,6 +345,8 @@ def _upsert_sales(dataframe: pd.DataFrame, repo: DataRepository, metrics: Ingest
     metrics.rows_cleaned = len(valid_frame)
 
     records = _sales_records(valid_frame)
+    for rec in records:
+        rec["organization_id"] = organization_id
     repo.upsert_sales(records)
     return len(records)
 

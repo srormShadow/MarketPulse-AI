@@ -8,6 +8,8 @@ import pandas as pd
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 
+from marketpulse.core.auth import require_admin
+from marketpulse.core.config import get_settings
 from marketpulse.db.get_repo import get_repo
 
 if TYPE_CHECKING:
@@ -22,8 +24,16 @@ SALES_CSV = DATA_DIR / "demo_sales_365.csv"
 
 
 @router.post("/seed_demo")
-def seed_demo(repo: "DataRepository" = Depends(get_repo)) -> JSONResponse:
+def seed_demo(
+    repo: "DataRepository" = Depends(get_repo),
+    _admin: dict = Depends(require_admin),
+) -> JSONResponse:
     """Load demo SKU + Sales CSVs into the database for quick testing."""
+    if get_settings().environment.lower() in {"production", "prod"}:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"status": "error", "message": "Demo data seeding is disabled in production."},
+        )
 
     if not SKU_CSV.exists() or not SALES_CSV.exists():
         return JSONResponse(
@@ -76,9 +86,18 @@ def seed_demo(repo: "DataRepository" = Depends(get_repo)) -> JSONResponse:
 
 
 @router.post("/reseed_festivals")
-def reseed_festivals_endpoint(repo: "DataRepository" = Depends(get_repo)) -> JSONResponse:
+def reseed_festivals_endpoint(
+    repo: "DataRepository" = Depends(get_repo),
+    _admin: dict = Depends(require_admin),
+) -> JSONResponse:
     """Clear and reseed festival data with per-category uplift values."""
     from marketpulse.services.festival_seed import reseed_festivals
+
+    if get_settings().environment.lower() in {"production", "prod"}:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"status": "error", "message": "Festival reseeding is disabled in production."},
+        )
 
     try:
         count = reseed_festivals(repo)

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, Path, Request, status
 from fastapi.responses import JSONResponse
 
+from marketpulse.core.auth import get_current_user
 from marketpulse.core.rate_limit import limiter
 from marketpulse.core.security import verify_api_key
 from marketpulse.db.get_repo import get_repo
@@ -194,7 +195,9 @@ def _compute_or_fetch_forecast_payload(
     return payload, False, data_stale
 
 
-def _log_decision_event(repo: "DataRepository", payload: dict) -> None:
+def _log_decision_event(repo: "DataRepository", payload: dict, *, cache_hit: bool = False) -> None:
+    if cache_hit:
+        return
     decision = payload.get("decision", {})
     risk_score = float(decision.get("risk_score", 0.0))
     insight = json.dumps(
@@ -228,13 +231,16 @@ async def create_batch_forecast(
     request: Request,
     body: BatchForecastRequest,
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
 ) -> list[ForecastResponse] | JSONResponse:
     """Generate demand forecasts for multiple categories in one request."""
+    org_id = current_user.get("organization_id")
+    scoped_repo = repo.with_organization(org_id) if hasattr(repo, "with_organization") else repo
     responses: list[ForecastResponse] = []
 
     for category in body.categories:
-        skus = repo.get_skus_for_category(category)
+        skus = scoped_repo.get_skus_for_category(category, organization_id=org_id)
         if not skus:
             logger.warning("Batch forecast skipped unknown category=%s", category)
             continue
@@ -246,7 +252,7 @@ async def create_batch_forecast(
 
         try:
             payload, cache_hit, data_stale = _compute_or_fetch_forecast_payload(
-                repo=repo,
+                repo=scoped_repo,
                 category=category,
                 n_days=body.n_days,
                 current_inventory=current_inventory,
@@ -269,7 +275,7 @@ async def create_batch_forecast(
             )
         )
         try:
-            _log_decision_event(repo, payload)
+            _log_decision_event(scoped_repo, payload, cache_hit=cache_hit)
         except Exception:
             logger.exception("Failed to log decision event for category=%s", category)
 
@@ -291,6 +297,7 @@ async def create_forecast(
     category: str = Path(..., description="Product category to forecast", max_length=100),
     body: ForecastRequest = ...,
     repo: "DataRepository" = Depends(get_repo),
+    current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
 ) -> ForecastResponse | JSONResponse:
     """Generate demand forecast and inventory decision for a product category.
@@ -310,7 +317,9 @@ async def create_forecast(
         ForecastResponse with forecast time series and inventory decision summary
     """
     # Validate category exists
-    skus = repo.get_skus_for_category(category)
+    org_id = current_user.get("organization_id")
+    scoped_repo = repo.with_organization(org_id) if hasattr(repo, "with_organization") else repo
+    skus = scoped_repo.get_skus_for_category(category, organization_id=org_id)
 
     if not skus:
         logger.warning("Forecast requested for non-existent category: %s", category)
@@ -324,7 +333,7 @@ async def create_forecast(
 
     try:
         payload, cache_hit, data_stale = _compute_or_fetch_forecast_payload(
-            repo=repo,
+            repo=scoped_repo,
             category=category,
             n_days=body.n_days,
             current_inventory=body.current_inventory,
@@ -358,7 +367,7 @@ async def create_forecast(
         cache_hit,
     )
     try:
-        _log_decision_event(repo, payload)
+        _log_decision_event(scoped_repo, payload, cache_hit=cache_hit)
     except Exception:
         logger.exception("Failed to log decision event for category=%s", category)
 

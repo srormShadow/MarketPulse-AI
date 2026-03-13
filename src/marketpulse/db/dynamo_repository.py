@@ -39,11 +39,20 @@ def _legacy_forecast_signature(n_days: int, current_inventory: int, lead_time_da
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+MAX_PAGE_SIZE = 1000
+
+
 class DynamoRepository:
     """Implements DataRepository using boto3 DynamoDB Table operations."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, organization_id: int | None = None) -> None:
         self._dynamo = get_dynamo_resource()
+        self._organization_id = organization_id
+
+    def with_organization(self, organization_id: int | None) -> "DynamoRepository":
+        """Return a copy scoped to a specific organization."""
+        clone = DynamoRepository(organization_id=organization_id)
+        return clone
 
     def _table(self, name: str):
         return self._dynamo.Table(name)
@@ -161,10 +170,12 @@ class DynamoRepository:
         ]
 
     def list_skus(self, limit: int, offset: int) -> tuple[int, list[dict]]:
+        safe_limit = max(1, min(int(limit), MAX_PAGE_SIZE))
+        safe_offset = max(0, int(offset))
         all_items = self._scan_all("marketpulse_inventory")
         all_items.sort(key=lambda x: x.get("sku_id", ""))
         total = len(all_items)
-        page = all_items[offset: offset + limit]
+        page = all_items[safe_offset: safe_offset + safe_limit]
         return total, [
             {
                 "sku_id": it["sku_id"],

@@ -11,6 +11,7 @@ from functools import lru_cache
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from marketpulse.core.config import get_settings
 
@@ -19,13 +20,23 @@ from marketpulse.core.config import get_settings
 def _get_engine():
     settings = get_settings()
     connect_args: dict = {}
+    pool_kwargs: dict = {"pool_pre_ping": True}
+
     if settings.database_url.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
+        # SQLite doesn't support real connection pooling; use StaticPool.
+        pool_kwargs["poolclass"] = StaticPool
+    else:
+        # PostgreSQL / MySQL in production: explicit pool tuning.
+        pool_kwargs["pool_size"] = 10
+        pool_kwargs["max_overflow"] = 20
+        pool_kwargs["pool_timeout"] = 30
+        pool_kwargs["pool_recycle"] = 1800  # recycle connections every 30 min
 
     engine = create_engine(
         settings.database_url,
         connect_args=connect_args,
-        pool_pre_ping=True,
+        **pool_kwargs,
     )
 
     if settings.database_url.startswith("sqlite"):

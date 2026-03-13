@@ -7,7 +7,6 @@ import hmac
 import io
 import json
 import logging
-import pickle
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -25,6 +24,8 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in lean test envs
             super().__init__(f"S3 client unavailable for operation '{operation_name}'")
             self.response = response or {"Error": {"Code": "Unavailable"}}
             self.operation_name = operation_name
+
+import joblib
 
 from marketpulse.core.config import get_settings
 
@@ -82,6 +83,7 @@ def upload_csv(file: bytes, category: str, filename: str | None = None) -> str:
         Key=key,
         Body=file,
         ContentType="text/csv",
+        ServerSideEncryption="AES256",
     )
     return f"s3://{bucket}/{key}"
 
@@ -96,7 +98,9 @@ def save_model(model_object: Any, category: str) -> str:
     version_key = f"{safe_category}/{stamp}.pkl"
     latest_key = f"{safe_category}/latest.pkl"
 
-    payload = pickle.dumps(model_object)
+    buf = io.BytesIO()
+    joblib.dump(model_object, buf, compress=("zlib", 3))
+    payload = buf.getvalue()
     algo, digest = _signature_for_payload(payload, settings.model_signing_key)
     signature_blob = json.dumps({"algo": algo, "digest": digest}).encode("utf-8")
 
@@ -106,24 +110,28 @@ def save_model(model_object: Any, category: str) -> str:
         Key=version_key,
         Body=io.BytesIO(payload).getvalue(),
         ContentType="application/octet-stream",
+        ServerSideEncryption="AES256",
     )
     client.put_object(
         Bucket=bucket,
         Key=latest_key,
         Body=io.BytesIO(payload).getvalue(),
         ContentType="application/octet-stream",
+        ServerSideEncryption="AES256",
     )
     client.put_object(
         Bucket=bucket,
         Key=f"{version_key}.sig.json",
         Body=signature_blob,
         ContentType="application/json",
+        ServerSideEncryption="AES256",
     )
     client.put_object(
         Bucket=bucket,
         Key=f"{latest_key}.sig.json",
         Body=signature_blob,
         ContentType="application/json",
+        ServerSideEncryption="AES256",
     )
     return f"s3://{bucket}/{latest_key}"
 
@@ -178,7 +186,7 @@ def load_model(category: str) -> Any | None:
         logger.warning("Unsafe pickle loading disabled for %s; skipping cached model load.", category)
         return None
 
-    return pickle.loads(payload)
+    return joblib.load(io.BytesIO(payload))
 
 
 def list_model_versions(category: str) -> list[dict[str, Any]]:

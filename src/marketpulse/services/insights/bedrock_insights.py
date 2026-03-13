@@ -7,6 +7,8 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+from marketpulse.core.resilience import bedrock_retry
+
 try:
     import boto3
     from botocore.exceptions import BotoCoreError, ClientError
@@ -71,6 +73,7 @@ def _fallback_message(category: str, decision_data: Any) -> str:
     )
 
 
+@bedrock_retry
 def generate_category_insight(
     category: str,
     forecast_data: Any,
@@ -135,6 +138,7 @@ Festival Context: {_compact(festival_context)}
         return _fallback_message(category, decision_data)
 
 
+@bedrock_retry
 def generate_discount_simulation_explanation(
     category: str,
     discount_percent: float,

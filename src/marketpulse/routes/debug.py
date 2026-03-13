@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Query
 
+from marketpulse.core.auth import require_admin
 from marketpulse.db.get_repo import get_repo
 
 if TYPE_CHECKING:
@@ -21,6 +22,7 @@ router = APIRouter(tags=["debug"])
 def list_skus(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    _admin: dict = Depends(require_admin),
     repo: "DataRepository" = Depends(get_repo),
 ) -> SKUListResponse:
     """Return paginated SKU records for internal debugging."""
@@ -43,7 +45,10 @@ def list_skus(
 
 
 @router.get("/sales/count", response_model=SalesCountResponse)
-def sales_count(repo: "DataRepository" = Depends(get_repo)) -> SalesCountResponse:
+def sales_count(
+    _admin: dict = Depends(require_admin),
+    repo: "DataRepository" = Depends(get_repo),
+) -> SalesCountResponse:
     """Return total row count for sales records."""
 
     total_rows = repo.count_sales()
