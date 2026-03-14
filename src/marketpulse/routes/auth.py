@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Body, Depends, Request, Response
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import JSONResponse
 from starlette import status
 
@@ -75,8 +76,6 @@ async def login(
     )
 
     # Issue CSRF token (readable) alongside HttpOnly session cookie
-    import secrets
-
     csrf_token = secrets.token_urlsafe(32)
 
     response = JSONResponse(
@@ -164,8 +163,6 @@ async def register(
         }
     )
 
-    import secrets
-
     csrf_token = secrets.token_urlsafe(32)
     response = JSONResponse(
         status_code=status.HTTP_201_CREATED,
@@ -188,7 +185,6 @@ async def register(
 
 @router.post("/auth/logout", response_model=None)
 async def logout(
-    response: Response,
     current_user: dict = Depends(get_current_user),
     repo: "DataRepository" = Depends(get_repo),
     _csrf: None = Depends(require_csrf),
