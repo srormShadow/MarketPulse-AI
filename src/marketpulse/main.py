@@ -1,9 +1,10 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from slowapi.errors import RateLimitExceeded
 
 from marketpulse.core.secrets import load_secrets
@@ -114,15 +115,11 @@ app.include_router(ingestion_router)
 
 @app.get("/metrics", include_in_schema=False)
 async def prometheus_metrics(_api_key: str = Depends(verify_api_key)):
-    from fastapi.responses import Response
-
     return Response(content=metrics_response(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
-    import time
-
     start = time.perf_counter()
     response = await call_next(request)
     duration = time.perf_counter() - start
