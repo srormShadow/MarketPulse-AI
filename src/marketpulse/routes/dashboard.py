@@ -23,7 +23,10 @@ async def dashboard_bootstrap(
 ) -> JSONResponse:
     org_id = current_user.get("organization_id")
     scoped_repo = repo.with_organization(org_id) if hasattr(repo, "with_organization") else repo
-    summary = scoped_repo.get_inventory_summary(org_id)
+    if org_id is None:
+        summary = {"categories": [], "inventory": {}, "lead_times": {}}
+    else:
+        summary = scoped_repo.get_inventory_summary(org_id)
     connected_stores = scoped_repo.list_shopify_stores(organization_id=org_id)
     sales_count = scoped_repo.count_sales() if hasattr(scoped_repo, "count_sales") else repo.count_sales()
 
