@@ -302,6 +302,24 @@ def test_shopify_sync_surfaces_upstream_403_with_actionable_message(client, repo
     assert "read_products, read_orders, read_inventory" in payload["message"]
 
 
+def test_shopify_sync_surfaces_connectivity_errors(client, repo, monkeypatch):
+    _configure_shopify_env(monkeypatch)
+    store = repo.create_shopify_store("marketpulse-ai-2.myshopify.com", "token", "read_products")
+
+    def _boom(**kwargs):
+        raise httpx.ConnectError("[WinError 10013] blocked", request=httpx.Request("GET", "https://example.com"))
+
+    monkeypatch.setattr(shopify_routes, "run_full_sync", _boom)
+
+    result = client.post(f"/shopify/sync/{store['id']}", json={})
+
+    assert result.status_code == 502
+    payload = result.json()
+    assert payload["status"] == "error"
+    assert "Unable to reach Shopify from the backend" in payload["message"]
+    assert "WinError 10013" in payload["message"]
+
+
 def test_shopify_webhook_rejects_invalid_hmac(client, monkeypatch):
     _configure_shopify_env(monkeypatch)
 

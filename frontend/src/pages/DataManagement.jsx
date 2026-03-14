@@ -115,6 +115,9 @@ const DataManagement = () => {
   const [shopifyLoading, setShopifyLoading] = useState(false);
   const [shopifyShowForm, setShopifyShowForm] = useState(false);
   const [shopifyDomain, setShopifyDomain] = useState('');
+  const shopifyPopupRef = useRef(null);
+  const shopifyPollRef = useRef(null);
+  const shopifyConnectTargetRef = useRef('');
 
   const loadOperationalData = async (inventorySnapshot = inventoryValues) => {
     if (!CATEGORIES.length) {
@@ -293,20 +296,49 @@ const DataManagement = () => {
     }
   };
 
-  const loadShopifyStores = async () => {
-    setShopifyLoading(true);
+  const loadShopifyStores = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setShopifyLoading(true);
+    }
     try {
       const res = await apiClient.get('/shopify/stores');
-      setShopifyStores(res?.data?.stores || []);
+      const stores = res?.data?.stores || [];
+      setShopifyStores(stores);
+      return stores;
     } catch {
       // Shopify not configured - silently ignore
+      return [];
     } finally {
-      setShopifyLoading(false);
+      if (!silent) {
+        setShopifyLoading(false);
+      }
     }
   };
 
-  // Keep a ref to the OAuth popup so we can close it from the main tab
-  const shopifyPopupRef = useRef(null);
+  const stopShopifyPolling = () => {
+    if (shopifyPollRef.current) {
+      window.clearInterval(shopifyPollRef.current);
+      shopifyPollRef.current = null;
+    }
+  };
+
+  const finalizeShopifyConnect = async ({ shop = '', message = '' } = {}) => {
+    stopShopifyPolling();
+    setShopifyLoading(true);
+    try {
+      const stores = await loadShopifyStores({ silent: true });
+      setShopifyMessage(message || (shop ? `Connected to ${shop}` : 'Shopify store connected successfully.'));
+      setShopifyDomain('');
+      setShopifyShowForm(false);
+      await loadOperationalData(inventoryValues);
+      await refresh();
+      return stores;
+    } finally {
+      shopifyConnectTargetRef.current = '';
+      setShopifyConnecting(false);
+      setShopifyLoading(false);
+    }
+  };
 
   // Listen for OAuth popup result via window.postMessage from the callback page
   useEffect(() => {
@@ -327,29 +359,63 @@ const DataManagement = () => {
       shopifyPopupRef.current = null;
 
       if (shopify === 'connected') {
-        setShopifyLoading(true);
-        try {
-          setShopifyMessage(message || `Connected to ${shop}`);
-          setShopifyDomain('');
-          setShopifyShowForm(false);
-          await loadShopifyStores();
-          await loadOperationalData(inventoryValues);
-          await refresh();
-        } finally {
-          setShopifyConnecting(false);
-          setShopifyLoading(false);
-        }
+        await finalizeShopifyConnect({ shop, message });
       } else if (shopify === 'error') {
+        stopShopifyPolling();
+        shopifyConnectTargetRef.current = '';
         setShopifyConnecting(false);
         setShopifyError(message || 'Shopify connection failed.');
       } else {
+        stopShopifyPolling();
+        shopifyConnectTargetRef.current = '';
         setShopifyConnecting(false);
       }
     };
     window.addEventListener('message', handleOauthMessage);
-    return () => window.removeEventListener('message', handleOauthMessage);
+    return () => {
+      stopShopifyPolling();
+      window.removeEventListener('message', handleOauthMessage);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const startShopifyPolling = (expectedShopDomain, popup) => {
+    stopShopifyPolling();
+    shopifyConnectTargetRef.current = expectedShopDomain;
+    let closedAt = null;
+    let refreshInFlight = false;
+
+    shopifyPollRef.current = window.setInterval(async () => {
+      if (refreshInFlight) return;
+      refreshInFlight = true;
+      try {
+        const stores = await loadShopifyStores({ silent: true });
+        const normalizedTarget = expectedShopDomain.trim().toLowerCase();
+        const connectedStore = stores.find(
+          (store) => String(store.shop_domain || '').trim().toLowerCase() === normalizedTarget,
+        );
+        if (connectedStore) {
+          await finalizeShopifyConnect({
+            shop: connectedStore.shop_domain,
+            message: `Connected to ${connectedStore.shop_domain}`,
+          });
+          return;
+        }
+
+        if (popup.closed) {
+          if (!closedAt) {
+            closedAt = Date.now();
+          } else if (Date.now() - closedAt > 10000) {
+            stopShopifyPolling();
+            shopifyConnectTargetRef.current = '';
+            setShopifyConnecting(false);
+          }
+        }
+      } finally {
+        refreshInFlight = false;
+      }
+    }, 1000);
+  };
 
   const handleConnectShopify = async () => {
     if (!shopifyDomain.trim()) {
@@ -376,18 +442,13 @@ const DataManagement = () => {
         setShopifyConnecting(false);
         return;
       }
-      // Store ref so we can close it from the main tab when BroadcastChannel fires
+      const normalizedDomain = String(res?.data?.shop_domain || shopifyDomain.trim()).toLowerCase();
       shopifyPopupRef.current = popup;
-      // Poll to detect if the user closed the popup without completing OAuth
-      const pollId = setInterval(() => {
-        if (popup.closed && shopifyPopupRef.current === popup) {
-          clearInterval(pollId);
-          shopifyPopupRef.current = null;
-          setShopifyConnecting(false);
-        }
-      }, 1000);
+      startShopifyPolling(normalizedDomain, popup);
     } catch (err) {
       setShopifyError(getApiErrorMessage(err, 'Failed to initiate Shopify connection.'));
+      stopShopifyPolling();
+      shopifyConnectTargetRef.current = '';
       setShopifyConnecting(false);
     }
   };

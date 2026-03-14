@@ -82,8 +82,6 @@ def _frontend_redirect_url(status_value: str, shop: str, *, reason: str = "", me
 
 def _oauth_callback_response(status_value: str, shop: str, *, reason: str = "", message: str = "") -> HTMLResponse:
     """Serve an inline HTML page that posts the OAuth result back to the opener and closes itself."""
-    import json
-
     payload = json.dumps(
         {
             "shopify": status_value,
@@ -326,7 +324,7 @@ def _render_connect_page(*, error_message: str = "", prefill: str = "") -> HTMLR
 
 def _render_not_configured_page() -> HTMLResponse:
     """Render a friendly error page when Shopify is not configured."""
-    html = f"""<!doctype html>
+    page_html = f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -344,7 +342,7 @@ def _render_not_configured_page() -> HTMLResponse:
   </div>
 </body>
 </html>"""
-    return HTMLResponse(content=html, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+    return HTMLResponse(content=page_html, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 # ---------------------------------------------------------------------------
@@ -664,6 +662,28 @@ async def trigger_sync(
             sync_products=sync_params.sync_products,
             sync_orders=sync_params.sync_orders,
             orders_days_back=sync_params.orders_days_back,
+        )
+    except httpx.ConnectError as exc:
+        logger.exception("Shopify sync connection failed for store_id=%d", store_id)
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "status": "error",
+                "message": (
+                    "Unable to reach Shopify from the backend. "
+                    "Check outbound HTTPS access, local firewall rules, VPN/proxy settings, "
+                    f"or sandbox restrictions. Details: {exc}"
+                ),
+            },
+        )
+    except httpx.TimeoutException:
+        logger.exception("Shopify sync timed out for store_id=%d", store_id)
+        return JSONResponse(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            content={
+                "status": "error",
+                "message": "Shopify sync timed out while waiting for the Shopify API.",
+            },
         )
     except httpx.HTTPStatusError as exc:
         upstream_status = exc.response.status_code
