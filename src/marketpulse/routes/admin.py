@@ -59,8 +59,8 @@ async def system_stats(
         content={
             "total_users": repo.count_users(),
             "total_organizations": repo.count_organizations(),
-            "total_stores": len(repo.list_shopify_stores()),
-            "total_skus": repo.list_skus(1, 0)[0],
+            "total_stores": repo.count_shopify_stores(),
+            "total_skus": repo.count_skus(),
             "total_sales": repo.count_sales(),
         },
     )
