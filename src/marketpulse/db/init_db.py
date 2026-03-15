@@ -19,28 +19,7 @@ def init_db() -> None:
         _init_sqlite()
 
 
-def _migrate_add_org_columns(engine) -> None:
-    """Add organization_id columns to existing tables if they don't have them yet."""
-    from sqlalchemy import inspect, text
 
-    inspector = inspect(engine)
-    migrations = [
-        ("skus", "organization_id", "INTEGER REFERENCES organizations(id)"),
-        ("sales", "organization_id", "INTEGER REFERENCES organizations(id)"),
-        ("forecast_cache", "organization_id", "INTEGER REFERENCES organizations(id)"),
-        ("recommendation_logs", "organization_id", "INTEGER REFERENCES organizations(id)"),
-        ("upload_events", "organization_id", "INTEGER REFERENCES organizations(id)"),
-        ("users", "token_version", "INTEGER NOT NULL DEFAULT 1"),
-    ]
-    with engine.connect() as conn:
-        for table, column, col_type in migrations:
-            if table not in inspector.get_table_names():
-                continue
-            existing_cols = {c["name"] for c in inspector.get_columns(table)}
-            if column not in existing_cols:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
-                logger.info("Migration: added %s.%s", table, column)
-        conn.commit()
 
 
 def _init_sqlite() -> None:
@@ -49,16 +28,16 @@ def _init_sqlite() -> None:
     from marketpulse.db.base import Base
     from marketpulse.db.repository import SQLiteRepository
     from marketpulse.db.session import SessionLocal, _get_engine
-    from marketpulse.models import Festival, HealthPing, Organization, SKU, Sales, ShopifyStore, ShopifyWebhookEvent, User  # noqa: F401 — register models
+    from marketpulse.models import Festival, ForecastEvent, HealthPing, Organization, SKU, Sales, ShopifyStore, ShopifyWebhookEvent, User  # noqa: F401 — register models
     from marketpulse.services.festival_seed import seed_festivals_if_empty
 
     try:
         logger.info("Starting SQLite database initialization")
         engine = _get_engine()
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database schema ensured via create_all")
-        _migrate_add_org_columns(engine)
-        _stamp_alembic_head(engine)
+        
+        from sqlalchemy import inspect
+        if "organizations" not in inspect(engine).get_table_names():
+            logger.warning("Database schema appears empty. Please run 'alembic upgrade head' before using the application.")
 
         db = SessionLocal()
         try:
@@ -120,19 +99,7 @@ def _seed_default_admin(repo) -> None:
     logger.info("Default retailer user created (email=%s)", retailer_email)
 
 
-def _stamp_alembic_head(engine) -> None:
-    """Stamp the Alembic version table so ``alembic upgrade head`` is a no-op on fresh DBs."""
-    try:
-        from alembic import command
-        from alembic.config import Config
 
-        cfg = Config()
-        cfg.set_main_option("script_location", "migrations")
-        cfg.set_main_option("sqlalchemy.url", str(engine.url))
-        command.stamp(cfg, "head")
-        logger.info("Alembic version table stamped at head")
-    except Exception:
-        logger.debug("Alembic stamp skipped (alembic not installed or migrations dir absent)")
 
 
 def _init_dynamo() -> None:

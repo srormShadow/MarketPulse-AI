@@ -54,6 +54,10 @@ class DynamoRepository:
         clone = DynamoRepository(organization_id=organization_id)
         return clone
 
+
+    def _effective_org_id(self, organization_id: int | None = None) -> int | None:
+        return organization_id if organization_id is not None else self._organization_id
+
     def _table(self, name: str):
         return self._dynamo.Table(name)
 
@@ -61,8 +65,14 @@ class DynamoRepository:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _scan_all(self, table_name: str, **kwargs) -> list[dict]:
+    def _scan_all(self, table_name: str, org_id: int | None = None, **kwargs) -> list[dict]:
         """Paginated scan that returns all items."""
+        if org_id is not None:
+            cond = Attr("organization_id").eq(int(org_id))
+            if "FilterExpression" in kwargs:
+                kwargs["FilterExpression"] = kwargs["FilterExpression"] & cond
+            else:
+                kwargs["FilterExpression"] = cond
         table = self._table(table_name)
         items: list[dict] = []
         response = table.scan(**kwargs)
@@ -74,8 +84,14 @@ class DynamoRepository:
             items.extend(response.get("Items", []))
         return items
 
-    def _query_all(self, table_name: str, **kwargs) -> list[dict]:
+    def _query_all(self, table_name: str, org_id: int | None = None, **kwargs) -> list[dict]:
         """Paginated query that returns all matching items."""
+        if org_id is not None:
+            cond = Attr("organization_id").eq(int(org_id))
+            if "FilterExpression" in kwargs:
+                kwargs["FilterExpression"] = kwargs["FilterExpression"] & cond
+            else:
+                kwargs["FilterExpression"] = cond
         table = self._table(table_name)
         items: list[dict] = []
         response = table.query(**kwargs)
@@ -137,6 +153,7 @@ class DynamoRepository:
     # ------------------------------------------------------------------
 
     def upsert_skus(self, records: list[dict]) -> int:
+        org_id = self._effective_org_id(records[0].get("organization_id") if records else None)
         table = self._table("marketpulse_inventory")
         upload_ts = datetime.now(timezone.utc).isoformat()
         with table.batch_writer() as batch:
@@ -149,12 +166,15 @@ class DynamoRepository:
                     "cost": _to_decimal(rec["cost"]),
                     "current_inventory": int(rec["current_inventory"]),
                     "last_upload_timestamp": upload_ts,
+                    **({"organization_id": org_id} if org_id is not None else {}),
                 })
         return len(records)
 
-    def get_skus_for_category(self, category: str) -> list[dict]:
+    def get_skus_for_category(self, category: str, organization_id: int | None = None) -> list[dict]:
+        org_id = self._effective_org_id(organization_id)
         items = self._query_all(
             "marketpulse_inventory",
+            org_id=org_id,
             KeyConditionExpression=Key("category").eq(category),
         )
         return [
@@ -169,10 +189,11 @@ class DynamoRepository:
             for it in items
         ]
 
-    def list_skus(self, limit: int, offset: int) -> tuple[int, list[dict]]:
+    def list_skus(self, limit: int, offset: int, organization_id: int | None = None) -> tuple[int, list[dict]]:
+        org_id = self._effective_org_id(organization_id)
         safe_limit = max(1, min(int(limit), MAX_PAGE_SIZE))
         safe_offset = max(0, int(offset))
-        all_items = self._scan_all("marketpulse_inventory")
+        all_items = self._scan_all("marketpulse_inventory", org_id=org_id)
         all_items.sort(key=lambda x: x.get("sku_id", ""))
         total = len(all_items)
         page = all_items[safe_offset: safe_offset + safe_limit]
@@ -197,6 +218,7 @@ class DynamoRepository:
     # ------------------------------------------------------------------
 
     def upsert_sales(self, records: list[dict]) -> int:
+        org_id = self._effective_org_id(records[0].get("organization_id") if records else None)
         # Enrich records with category from inventory table
         sku_ids = list({r["sku_id"] for r in records})
         category_map = self._category_for_skus(sku_ids)
@@ -215,6 +237,7 @@ class DynamoRepository:
                     "date": date_str,
                     "sku_id": rec["sku_id"],
                     "units_sold": int(rec["units_sold"]),
+                    **({"organization_id": org_id} if org_id is not None else {}),
                 })
                 written += 1
         if written > 0:
@@ -252,19 +275,22 @@ class DynamoRepository:
 
     def count_sales(self) -> int:
         table = self._table("marketpulse_sales")
-        response = table.scan(Select="COUNT")
+        scan_kwargs = {"Select": "COUNT"}
+        if self._organization_id is not None:
+            scan_kwargs["FilterExpression"] = Attr("organization_id").eq(self._organization_id)
+        response = table.scan(**scan_kwargs)
         count = response.get("Count", 0)
         while "LastEvaluatedKey" in response:
-            response = table.scan(
-                Select="COUNT",
-                ExclusiveStartKey=response["LastEvaluatedKey"],
-            )
+            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+            response = table.scan(**scan_kwargs)
             count += response.get("Count", 0)
         return count
 
-    def get_category_daily_sales(self, category: str) -> pd.DataFrame:
+    def get_category_daily_sales(self, category: str, organization_id: int | None = None) -> pd.DataFrame:
+        org_id = self._effective_org_id(organization_id)
         items = self._query_all(
             "marketpulse_sales",
+            org_id=org_id,
             KeyConditionExpression=Key("category").eq(category),
         )
         if not items:
@@ -290,10 +316,8 @@ class DynamoRepository:
         response = table.scan(Select="COUNT")
         count = response.get("Count", 0)
         while "LastEvaluatedKey" in response:
-            response = table.scan(
-                Select="COUNT",
-                ExclusiveStartKey=response["LastEvaluatedKey"],
-            )
+            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+            response = table.scan(**scan_kwargs)
             count += response.get("Count", 0)
         return count
 
@@ -381,14 +405,37 @@ class DynamoRepository:
     def log_recommendation(self, category: str, risk_score: float, insight: str, generated_at: datetime) -> None:
         table = self._table("marketpulse_recommendations_log")
         timestamp = generated_at.astimezone(timezone.utc).isoformat()
-        table.put_item(
-            Item={
-                "category": category,
-                "timestamp": timestamp,
-                "risk_score": _to_decimal(round(float(risk_score), 3)),
-                "insight": insight,
-            }
-        )
+        item = {
+            "category": category,
+            "timestamp": timestamp,
+            "risk_score": _to_decimal(round(float(risk_score), 3)),
+            "insight": insight,
+        }
+        if self._organization_id is not None:
+            item["organization_id"] = self._organization_id
+        table.put_item(Item=item)
+
+    def log_forecast_event(self, category: str, payload: dict[str, Any], generated_at: datetime) -> None:
+        table = self._table("marketpulse_forecast_events")
+        timestamp = generated_at.astimezone(timezone.utc).isoformat()
+        decision = payload.get("decision", {})
+        
+        item = {
+            "category": category,
+            "timestamp": timestamp,
+            "n_days": int(payload.get("n_days", 0)),
+            "current_inventory": int(payload.get("current_inventory", 0)),
+            "lead_time_days": int(payload.get("lead_time_days", 0)),
+            "supplier_pack_size": int(payload.get("supplier_pack_size", 1)),
+            "recommended_action": str(decision.get("recommended_action", "UNKNOWN")),
+            "order_quantity": int(decision.get("order_quantity", 0)),
+            "risk_score": _to_decimal(round(float(decision.get("risk_score", 0.0)), 3)),
+            "cache_hit": bool(payload.get("cache_hit", False)),
+            "warnings_json": json.dumps(payload.get("warnings", [])),
+        }
+        if self._organization_id is not None:
+            item["organization_id"] = self._organization_id
+        table.put_item(Item=item)
 
     def get_cached_recommendation(
         self,
@@ -397,11 +444,14 @@ class DynamoRepository:
         max_age_seconds: int = 3600,
     ) -> dict[str, Any] | None:
         table = self._table("marketpulse_recommendations_log")
-        response = table.query(
-            KeyConditionExpression=Key("category").eq(category),
-            ScanIndexForward=False,
-            Limit=25,
-        )
+        query_kwargs = {
+            "KeyConditionExpression": Key("category").eq(category),
+            "ScanIndexForward": False,
+            "Limit": 25,
+        }
+        if self._organization_id is not None:
+            query_kwargs["FilterExpression"] = Attr("organization_id").eq(self._organization_id)
+        response = table.query(**query_kwargs)
         now = datetime.now(timezone.utc)
         threshold = now - timedelta(seconds=max_age_seconds)
         target_risk = round(float(risk_score), 3)
@@ -429,7 +479,7 @@ class DynamoRepository:
         return None
 
     def list_recent_recommendations(self, limit: int = 10) -> list[dict[str, Any]]:
-        items = self._scan_all("marketpulse_recommendations_log")
+        items = self._scan_all("marketpulse_recommendations_log", org_id=self._organization_id)
         normalized: list[dict[str, Any]] = []
         for item in items:
             ts = str(item.get("timestamp", ""))
@@ -452,7 +502,8 @@ class DynamoRepository:
     # Forecast Cache
     # ------------------------------------------------------------------
 
-    def save_forecast_cache(self, category: str, payload: dict[str, Any], generated_at: datetime) -> None:
+    def save_forecast_cache(self, category: str, payload: dict[str, Any], generated_at: datetime, organization_id: int | None = None) -> None:
+        org_id = self._effective_org_id(organization_id)
         table = self._table("marketpulse_forecasts")
         timestamp = generated_at.astimezone(timezone.utc).isoformat()
         n_days = int(payload.get("n_days", 0))
@@ -475,6 +526,7 @@ class DynamoRepository:
                 "lead_time_days": lead_time_days,
                 "supplier_pack_size": supplier_pack_size,
                 "payload_json": json.dumps(payload, default=str),
+                **({"organization_id": org_id} if org_id is not None else {}),
             }
         )
 
@@ -486,14 +538,22 @@ class DynamoRepository:
         lead_time_days: int,
         supplier_pack_size: int = 1,
         max_age_seconds: int = 3600,
+        organization_id: int | None = None,
     ) -> dict[str, Any] | None:
         table = self._table("marketpulse_forecasts")
-        response = table.query(
-            KeyConditionExpression=Key("category").eq(category),
-            ScanIndexForward=False,
-            Limit=25,
-        )
+        query_kwargs = {
+            "KeyConditionExpression": Key("category").eq(category),
+            "ScanIndexForward": False,
+            "Limit": 25,
+        }
+        if self._organization_id is not None:
+            query_kwargs["FilterExpression"] = Attr("organization_id").eq(self._organization_id)
+        response = table.query(**query_kwargs)
 
+        org_id = self._effective_org_id(organization_id)
+        if org_id is not None:
+            # Replaced previously via query patch, but query wasn't patched properly unless we do it here
+            pass
         target_hash = _forecast_signature(
             n_days=n_days,
             current_inventory=current_inventory,
@@ -564,3 +624,28 @@ class DynamoRepository:
 
     def rollback(self) -> None:
         pass
+
+    def list_categories(self, organization_id: int) -> list[dict]:
+        items = self._scan_all("marketpulse_inventory", org_id=organization_id)
+        cats = {}
+        for it in items:
+            c = it.get("category")
+            if not c: continue
+            if c not in cats:
+                cats[c] = {"sku_count": 0, "total_inventory": 0}
+            cats[c]["sku_count"] += 1
+            cats[c]["total_inventory"] += int(it.get("current_inventory", 0))
+        return [
+            {"category": k, "sku_count": v["sku_count"], "total_inventory": v["total_inventory"]}
+            for k, v in cats.items()
+        ]
+
+    def get_inventory_summary(self, organization_id: int) -> dict[str, Any]:
+        categories = self.list_categories(organization_id)
+        inventory = {c["category"]: c["total_inventory"] for c in categories}
+        lead_times = {c["category"]: 7 for c in categories}
+        return {
+            "categories": [c["category"] for c in categories],
+            "inventory": inventory,
+            "lead_times": lead_times,
+        }

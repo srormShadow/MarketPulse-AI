@@ -17,8 +17,9 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from marketpulse.core.token_crypto import decrypt_token, encrypt_token
-from marketpulse.models.forecast_cache import ForecastCache
 from marketpulse.models.festival import Festival
+from marketpulse.models.forecast_cache import ForecastCache
+from marketpulse.models.forecast_event import ForecastEvent
 from marketpulse.models.organization import Organization
 from marketpulse.models.recommendation_log import RecommendationLog
 from marketpulse.models.sales import Sales
@@ -61,6 +62,7 @@ class DataRepository(Protocol):
     def log_recommendation(self, category: str, risk_score: float, insight: str, generated_at: datetime) -> None: ...
     def get_cached_recommendation(self, category: str, risk_score: float, max_age_seconds: int = 3600) -> dict[str, Any] | None: ...
     def list_recent_recommendations(self, limit: int = 10) -> list[dict[str, Any]]: ...
+    def log_forecast_event(self, category: str, payload: dict[str, Any], generated_at: datetime) -> None: ...
 
     # --- Forecast Cache ---
     def save_forecast_cache(self, category: str, payload: dict[str, Any], generated_at: datetime, organization_id: int | None = None) -> None: ...
@@ -434,6 +436,27 @@ class SQLiteRepository:
             }
             for row in rows
         ]
+
+    def log_forecast_event(self, category: str, payload: dict[str, Any], generated_at: datetime) -> None:
+        generated = generated_at.astimezone(timezone.utc) if generated_at.tzinfo else generated_at.replace(tzinfo=timezone.utc)
+        decision = payload.get("decision", {})
+        
+        event = ForecastEvent(
+            organization_id=self._organization_id,
+            category=category,
+            timestamp=generated,
+            n_days=int(payload.get("n_days", 0)),
+            current_inventory=int(payload.get("current_inventory", 0)),
+            lead_time_days=int(payload.get("lead_time_days", 0)),
+            supplier_pack_size=int(payload.get("supplier_pack_size", 1)),
+            recommended_action=str(decision.get("recommended_action", "UNKNOWN")),
+            order_quantity=int(decision.get("order_quantity", 0)),
+            risk_score=float(decision.get("risk_score", 0.0)),
+            cache_hit=bool(payload.get("cache_hit", False)),
+            warnings_json=json.dumps(payload.get("warnings", [])),
+        )
+        self._db.add(event)
+        self._db.commit()
 
     # --- Forecast Cache -------------------------------------------------
 
