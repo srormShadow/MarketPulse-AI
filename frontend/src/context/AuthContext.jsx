@@ -13,19 +13,21 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const applyCsrfToken = () => {
-    const stored = localStorage.getItem('mp_csrf');
-    if (stored) {
-      apiClient.defaults.headers.common['X-CSRF-Token'] = stored;
-    }
-  };
+  // The applyCsrfToken from localStorage was removed to prevent XSS.
+  // CSRF tokens are now solely retrieved on /auth/me or login/register.
 
   // Validate existing session on mount
   useEffect(() => {
-    applyCsrfToken();
+    // Note: applyCsrfToken() call removed
     apiClient
       .get('/auth/me')
-      .then((res) => setUser(res.data))
+      .then((res) => {
+        setUser(res.data);
+        const csrfToken = res.headers['x-csrf-token'];
+        if (csrfToken) {
+           apiClient.defaults.headers.common['X-CSRF-Token'] = csrfToken;
+        }
+      })
       .catch(() => {
         setUser(null);
       })
@@ -36,7 +38,6 @@ export const AuthProvider = ({ children }) => {
     const res = await apiClient.post('/auth/login', { email, password }, { withCredentials: true });
     const { user: userData, csrf_token: csrfToken } = res.data || {};
     if (csrfToken) {
-      localStorage.setItem('mp_csrf', csrfToken);
       apiClient.defaults.headers.common['X-CSRF-Token'] = csrfToken;
     }
 
@@ -53,7 +54,6 @@ export const AuthProvider = ({ children }) => {
     }, { withCredentials: true });
     const { user: userData, csrf_token: csrfToken } = res.data || {};
     if (csrfToken) {
-      localStorage.setItem('mp_csrf', csrfToken);
       apiClient.defaults.headers.common['X-CSRF-Token'] = csrfToken;
     }
     setUser(userData);
@@ -63,7 +63,6 @@ export const AuthProvider = ({ children }) => {
   const logout = useCallback(async () => {
     try { await apiClient.post('/auth/logout'); } catch { /* ignore */ }
     setUser(null);
-    localStorage.removeItem('mp_csrf');
     delete apiClient.defaults.headers.common['X-CSRF-Token'];
   }, []);
 
