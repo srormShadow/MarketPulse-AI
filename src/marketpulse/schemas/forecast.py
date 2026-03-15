@@ -47,12 +47,14 @@ class InventoryDecision(BaseModel):
 class ForecastResponse(BaseModel):
     """Complete forecast and decision response."""
 
+    status: str = Field(default="completed", description="Response status (completed, accepted, etc)")
     category: str = Field(description="Product category")
-    forecast: list[ForecastDataPoint] = Field(description="Forecast time series")
-    decision: InventoryDecision = Field(description="Inventory decision summary")
+    forecast: list[ForecastDataPoint] = Field(default_factory=list, description="Forecast time series")
+    decision: InventoryDecision | None = Field(default=None, description="Inventory decision summary")
     cache_hit: bool = Field(default=False, description="True if served from cache")
     data_stale: bool = Field(default=False, description="True if source data appears stale")
     warnings: list[str] = Field(default_factory=list, description="Non-fatal sanity warnings")
+    is_training: bool = Field(default=False, description="True if a model training job was dispatched")
 
 
 class BatchForecastRequest(BaseModel):

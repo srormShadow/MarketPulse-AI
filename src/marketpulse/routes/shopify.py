@@ -12,11 +12,12 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from marketpulse.core.auth import get_current_user
 from marketpulse.core.config import get_settings
+from marketpulse.core.queue import enqueue_task
 from marketpulse.core.rate_limit import limiter
 from marketpulse.core.security import verify_api_key, require_csrf
 from marketpulse.db.get_repo import get_repo
@@ -629,6 +630,7 @@ async def disconnect_store(
 async def trigger_sync(
     request: Request,
     store_id: int,
+    background_tasks: BackgroundTasks,
     payload: ShopifySyncRequest | None = Body(default=None),
     repo: "DataRepository" = Depends(get_repo),
     current_user: dict = Depends(get_current_user),
@@ -651,9 +653,10 @@ async def trigger_sync(
     access_token = str(store_full["access_token"]).strip()
     sync_params = payload or ShopifySyncRequest()
     scoped_repo = repo.with_organization(store_summary.get("organization_id")) if hasattr(repo, "with_organization") else repo
-
     try:
-        result = run_full_sync(
+        enqueue_task(
+            background_tasks,
+            run_full_sync,
             repo=scoped_repo,
             store_id=store_id,
             shop_domain=store_full["shop_domain"],
@@ -663,62 +666,19 @@ async def trigger_sync(
             sync_orders=sync_params.sync_orders,
             orders_days_back=sync_params.orders_days_back,
         )
-    except httpx.ConnectError as exc:
-        logger.exception("Shopify sync connection failed for store_id=%d", store_id)
-        return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content={
-                "status": "error",
-                "message": (
-                    "Unable to reach Shopify from the backend. "
-                    "Check outbound HTTPS access, local firewall rules, VPN/proxy settings, "
-                    f"or sandbox restrictions. Details: {exc}"
-                ),
-            },
-        )
-    except httpx.TimeoutException:
-        logger.exception("Shopify sync timed out for store_id=%d", store_id)
-        return JSONResponse(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            content={
-                "status": "error",
-                "message": "Shopify sync timed out while waiting for the Shopify API.",
-            },
-        )
-    except httpx.HTTPStatusError as exc:
-        upstream_status = exc.response.status_code
-        upstream_body = exc.response.text[:500] if exc.response.text else "(empty)"
-        logger.error(
-            "Shopify sync rejected: store_id=%d status=%d url=%s body=%s",
-            store_id, upstream_status, str(exc.request.url), upstream_body,
-        )
-        if upstream_status in {401, 403}:
-            detail = (
-                f"Shopify rejected the sync request (HTTP {upstream_status}). "
-                "This usually means the access token is invalid or the app lacks the required "
-                "Admin API scopes (read_products, read_orders, read_inventory). "
-                "Try: Disconnect the store, reinstall the app from Shopify, and reconnect. "
-                f"API version: {get_settings().shopify_api_version}. "
-                f"Shopify response: {upstream_body[:200]}"
-            )
-        else:
-            detail = f"Shopify API request failed with status {upstream_status} during sync."
-        return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content={"status": "error", "message": detail},
-        )
     except Exception:
-        logger.exception("Shopify sync failed for store_id=%d", store_id)
+        logger.exception("Shopify sync failed to enqueue for store_id=%d", store_id)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"status": "error", "message": "Sync failed due to an internal error."},
+            content={"status": "error", "message": "Failed to enqueue sync task."},
         )
 
     return ShopifySyncResponse(
-        status="completed",
+        status="queued",
         store_id=store_id,
         shop_domain=store_full["shop_domain"],
-        **result,
+        sync_products=sync_params.sync_products,
+        sync_orders=sync_params.sync_orders,
     )
 
 

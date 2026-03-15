@@ -53,7 +53,9 @@ class ShopifySyncResponse(BaseModel):
     status: str = "completed"
     store_id: int
     shop_domain: str
-    products_synced: int = 0
-    orders_synced: int = 0
-    skus_created: int = 0
-    sales_records_created: int = 0
+    sync_products: bool | None = None
+    sync_orders: bool | None = None
+    products_synced: int | None = None
+    orders_synced: int | None = None
+    skus_created: int | None = None
+    sales_records_created: int | None = None

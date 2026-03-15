@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, Path, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Request, status
 from fastapi.responses import JSONResponse
 
 from marketpulse.core.auth import get_current_user
@@ -230,6 +230,7 @@ def _log_decision_event(repo: "DataRepository", payload: dict, *, cache_hit: boo
 async def create_batch_forecast(
     request: Request,
     body: BatchForecastRequest,
+    background_tasks: BackgroundTasks,
     repo: "DataRepository" = Depends(get_repo),
     current_user: dict = Depends(get_current_user),
     _api_key: str = Depends(verify_api_key),
