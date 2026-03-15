@@ -1,16 +1,47 @@
 """Tests for forecast API endpoint."""
 
+from unittest.mock import patch
+
+import numpy as np
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from marketpulse.models.sales import Sales
 from marketpulse.models.sku import SKU
+from marketpulse.services.feature_engineering import prepare_training_data
+from marketpulse.services.forecasting import train_model
+from marketpulse.db.repository import SQLiteRepository
+
+
+def _build_model_json(repo, category: str) -> dict:
+    """Train a model locally and return its JSON artifact (matching save_model format)."""
+    X_train, y_train, _ = prepare_training_data(repo, category)
+    model, scaler = train_model(X_train, y_train)
+    return {
+        "schema_version": "1.0",
+        "trained_at": "20260315T000000Z",
+        "feature_columns": list(X_train.columns),
+        "model": {
+            "coef_": model.coef_.tolist(),
+            "intercept_": float(model.intercept_),
+            "alpha_": float(model.alpha_),
+            "lambda_": float(model.lambda_),
+            "sigma_": model.sigma_.tolist(),
+        },
+        "scaler": {
+            "scale_": scaler.scale_.tolist(),
+            "mean_": scaler.mean_.tolist(),
+            "var_": scaler.var_.tolist(),
+            "n_samples_seen_": int(scaler.n_samples_seen_),
+        },
+    }
 
 
 @pytest.fixture
 def sample_category_data(db_session: Session, client: TestClient) -> str:
-    """Create sample SKU and sales data for a category."""
+    """Create sample SKU and sales data for a category, train model with mocked S3."""
     category = "TestCategory"
 
     # Create SKU
@@ -26,8 +57,6 @@ def sample_category_data(db_session: Session, client: TestClient) -> str:
     db_session.flush()
 
     # Create sales history (30 days)
-    import pandas as pd
-
     dates = pd.date_range(end=pd.Timestamp.now().normalize(), periods=30, freq="D")
     for date in dates:
         sale = Sales(
@@ -38,7 +67,18 @@ def sample_category_data(db_session: Session, client: TestClient) -> str:
         db_session.add(sale)
 
     db_session.commit()
-    return category
+
+    # Train model locally (mock S3 save) and capture the artifact
+    repo = SQLiteRepository(db_session)
+    model_json = _build_model_json(repo, category)
+
+    # Patch load_model globally so forecast_next_n_days can find the trained model
+    patcher = patch("marketpulse.services.forecasting.load_model", return_value=model_json)
+    patcher.start()
+
+    yield category
+
+    patcher.stop()
 
 
 def test_forecast_endpoint_success(client: TestClient, sample_category_data: str):
