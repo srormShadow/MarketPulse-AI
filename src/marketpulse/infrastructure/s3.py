@@ -25,8 +25,6 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in lean test envs
             self.response = response or {"Error": {"Code": "Unavailable"}}
             self.operation_name = operation_name
 
-import joblib
-
 from marketpulse.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -88,19 +86,43 @@ def upload_csv(file: bytes, category: str, filename: str | None = None) -> str:
     return f"s3://{bucket}/{key}"
 
 
-def save_model(model_object: Any, category: str) -> str:
-    """Serialize and store model object in S3 under category/latest.pkl."""
+def save_model(model_object: dict[str, Any], category: str) -> str:
+    """Serialize and store model object parameters in S3 under category/latest.json.
+    
+    Instead of using pickle, this securely extracts mathematical parameters into pure JSON.
+    """
     settings = get_settings()
     bucket = settings.s3_model_bucket
     safe_category = _slugify(category)
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
-    version_key = f"{safe_category}/{stamp}.pkl"
-    latest_key = f"{safe_category}/latest.pkl"
+    version_key = f"{safe_category}/{stamp}.json"
+    latest_key = f"{safe_category}/latest.json"
 
-    buf = io.BytesIO()
-    joblib.dump(model_object, buf, compress=("zlib", 3))
-    payload = buf.getvalue()
+    model = model_object["model"]
+    scaler = model_object["scaler"]
+
+    # Extract exact arrays for linear mathematical models
+    payload_dict = {
+        "schema_version": "1.0",
+        "trained_at": model_object.get("trained_at", stamp),
+        "feature_columns": model_object.get("feature_columns", []),
+        "model": {
+            "coef_": model.coef_.tolist() if hasattr(model, "coef_") else [],
+            "intercept_": float(model.intercept_) if hasattr(model, "intercept_") else 0.0,
+            "alpha_": float(model.alpha_) if hasattr(model, "alpha_") else 1e-6,
+            "lambda_": float(model.lambda_) if hasattr(model, "lambda_") else 1e-6,
+            "sigma_": model.sigma_.tolist() if hasattr(model, "sigma_") else [],
+        },
+        "scaler": {
+            "scale_": scaler.scale_.tolist() if hasattr(scaler, "scale_") else [],
+            "mean_": scaler.mean_.tolist() if hasattr(scaler, "mean_") else [],
+            "var_": scaler.var_.tolist() if hasattr(scaler, "var_") else [],
+            "n_samples_seen_": int(scaler.n_samples_seen_) if hasattr(scaler, "n_samples_seen_") else 0,
+        }
+    }
+
+    payload = json.dumps(payload_dict).encode("utf-8")
     algo, digest = _signature_for_payload(payload, settings.model_signing_key)
     signature_blob = json.dumps({"algo": algo, "digest": digest}).encode("utf-8")
 
@@ -136,22 +158,13 @@ def save_model(model_object: Any, category: str) -> str:
     return f"s3://{bucket}/{latest_key}"
 
 
-def load_model(category: str) -> Any | None:
-    """Load category model object from s3://<model-bucket>/<category>/latest.pkl."""
+def load_model(category: str) -> dict[str, Any] | None:
+    """Load category model parameters from s3://<model-bucket>/<category>/latest.json."""
     settings = get_settings()
     bucket = settings.s3_model_bucket
     safe_category = _slugify(category)
-    latest_key = f"{safe_category}/latest.pkl"
+    latest_key = f"{safe_category}/latest.json"
     signature_key = f"{latest_key}.sig.json"
-
-    # In production, do not deserialize untrusted pickle unless explicitly allowed.
-    if (
-        settings.environment.lower() in {"production", "prod"}
-        and not settings.model_signing_key.strip()
-        and not settings.allow_unsafe_model_pickle
-    ):
-        logger.warning("Skipping model load for %s: MODEL_SIGNING_KEY is required in production.", category)
-        return None
 
     try:
         payload_response = _s3_client().get_object(Bucket=bucket, Key=latest_key)
@@ -178,15 +191,16 @@ def load_model(category: str) -> Any | None:
             logger.warning("Invalid model signature payload for %s; skipping load.", category)
             return None
 
-        algo, digest = _signature_for_payload(payload, signing_key)
-        if expected_algo != algo or not hmac.compare_digest(expected_digest, digest):
+        actual_algo, actual_digest = _signature_for_payload(payload, signing_key)
+        if expected_algo != actual_algo or not hmac.compare_digest(expected_digest, actual_digest):
             logger.warning("Model signature verification failed for %s; skipping load.", category)
             return None
-    elif not settings.allow_unsafe_model_pickle:
-        logger.warning("Unsafe pickle loading disabled for %s; skipping cached model load.", category)
-        return None
 
-    return joblib.load(io.BytesIO(payload))
+    try:
+        return json.loads(payload.decode("utf-8"))
+    except json.JSONDecodeError:
+        logger.exception("Failed to decode model JSON for category=%s", category)
+        return None
 
 
 def list_model_versions(category: str) -> list[dict[str, Any]]:
@@ -202,7 +216,7 @@ def list_model_versions(category: str) -> list[dict[str, Any]]:
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             key = str(obj["Key"])
-            if not key.endswith(".pkl"):
+            if not key.endswith(".json") or key.endswith(".sig.json"):
                 continue
             versions.append(
                 {
