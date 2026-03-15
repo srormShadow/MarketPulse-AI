@@ -10,6 +10,7 @@ from marketpulse.models.shopify_webhook_event import ShopifyWebhookEvent
 from marketpulse.models.sku import SKU
 from marketpulse.models.upload_event import UploadEvent
 from marketpulse.models.user import User
+from marketpulse.models.forecast_event import ForecastEvent
 
 __all__ = [
     "AuditLog",
@@ -24,5 +25,6 @@ __all__ = [
     "ShopifyStore",
     "ShopifyWebhookEvent",
     "User",
+    "ForecastEvent",
 ]
 

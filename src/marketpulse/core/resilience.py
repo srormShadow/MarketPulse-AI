@@ -45,7 +45,7 @@ shopify_retry = retry(
 # AWS Bedrock resilience
 # ---------------------------------------------------------------------------
 bedrock_retry = retry(
-    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError, Exception)),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
     stop=stop_after_attempt(2),
     wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
     before_sleep=_log_retry,
