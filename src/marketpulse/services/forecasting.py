@@ -1,4 +1,4 @@
-﻿"""Probabilistic forecasting utilities for category-level retail demand."""
+"""Probabilistic forecasting utilities for category-level retail demand."""
 
 from __future__ import annotations
 
@@ -181,30 +181,32 @@ def forecast_next_n_days(
     try:
         cached_model_obj = load_model(category)
         if isinstance(cached_model_obj, dict):
-            loaded_model = cached_model_obj.get("model")
-            loaded_scaler = cached_model_obj.get("scaler")
-            if isinstance(loaded_model, BayesianRidge) and isinstance(loaded_scaler, StandardScaler):
-                model = loaded_model
-                scaler = loaded_scaler
-                logger.info("Loaded forecast model from S3 for category=%s", category)
+            # Securely rehydrate mathematical models from JSON without pickle/joblib
+            raw_model = cached_model_obj.get("model", {})
+            raw_scaler = cached_model_obj.get("scaler", {})
+            
+            if raw_model and raw_scaler:
+                rehydrated_model = BayesianRidge()
+                rehydrated_model.coef_ = np.array(raw_model.get("coef_", []))
+                rehydrated_model.intercept_ = float(raw_model.get("intercept_", 0.0))
+                rehydrated_model.alpha_ = float(raw_model.get("alpha_", 1e-6))
+                rehydrated_model.lambda_ = float(raw_model.get("lambda_", 1e-6))
+                rehydrated_model.sigma_ = np.array(raw_model.get("sigma_", []))
+                
+                rehydrated_scaler = StandardScaler()
+                rehydrated_scaler.scale_ = np.array(raw_scaler.get("scale_", []))
+                rehydrated_scaler.mean_ = np.array(raw_scaler.get("mean_", []))
+                rehydrated_scaler.var_ = np.array(raw_scaler.get("var_", []))
+                rehydrated_scaler.n_samples_seen_ = int(raw_scaler.get("n_samples_seen_", 0))
+
+                model = rehydrated_model
+                scaler = rehydrated_scaler
+                logger.debug("Loaded secure JSON forecast model from S3 for category=%s", category)
     except Exception:
         logger.exception("Failed to load model from S3 for category=%s", category)
 
     if model is None or scaler is None:
-        model, scaler = train_model(X_train, y_train)
-        try:
-            save_model(
-                model_object={
-                    "model": model,
-                    "scaler": scaler,
-                    "trained_at": datetime.now(timezone.utc).isoformat(),
-                    "feature_columns": list(X_train.columns),
-                },
-                category=category,
-            )
-            logger.info("Saved trained forecast model to S3 for category=%s", category)
-        except Exception:
-            logger.exception("Failed to save model to S3 for category=%s", category)
+        raise ValueError(f"Model not found or invalid for category={category}. Please trigger a training job first.")
 
     last_date = pd.to_datetime(full_df["date"].max())
     last_time_index = int(full_df["time_index"].max())
