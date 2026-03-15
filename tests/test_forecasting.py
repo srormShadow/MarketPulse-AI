@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import numpy as np
 import pandas as pd
 import pytest
 
 from marketpulse.models.festival import Festival
 from marketpulse.models.sales import Sales
 from marketpulse.models.sku import SKU
-from marketpulse.services.forecasting import forecast_next_n_days
+from marketpulse.services.feature_engineering import prepare_training_data
+from marketpulse.services.forecasting import forecast_next_n_days, train_model
 
 
 def _seed_forecasting_data(session) -> None:
@@ -44,71 +48,101 @@ def _seed_forecasting_data(session) -> None:
     session.commit()
 
 
-def test_forecast_returns_correct_length(db_session, repo):
+def _build_model_json(repo, category: str) -> dict:
+    """Train a model locally and return its JSON artifact (matching save_model format)."""
+    X_train, y_train, _ = prepare_training_data(repo, category)
+    model, scaler = train_model(X_train, y_train)
+    return {
+        "schema_version": "1.0",
+        "trained_at": "20240701T000000Z",
+        "feature_columns": list(X_train.columns),
+        "model": {
+            "coef_": model.coef_.tolist(),
+            "intercept_": float(model.intercept_),
+            "alpha_": float(model.alpha_),
+            "lambda_": float(model.lambda_),
+            "sigma_": model.sigma_.tolist(),
+        },
+        "scaler": {
+            "scale_": scaler.scale_.tolist(),
+            "mean_": scaler.mean_.tolist(),
+            "var_": scaler.var_.tolist(),
+            "n_samples_seen_": int(scaler.n_samples_seen_),
+        },
+    }
+
+
+@pytest.fixture
+def seeded_repo(db_session, repo):
+    """Seed data and return the repo."""
     _seed_forecasting_data(db_session)
-    out = forecast_next_n_days(repo, "Edible Oil", n_days=30)
+    return repo
+
+
+@pytest.fixture
+def mock_s3_model(seeded_repo):
+    """Train model locally and mock load_model to return it."""
+    model_json = _build_model_json(seeded_repo, "Edible Oil")
+    with patch("marketpulse.services.forecasting.load_model", return_value=model_json):
+        yield seeded_repo
+
+
+def test_forecast_returns_correct_length(mock_s3_model):
+    out = forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=30)
     assert len(out) == 30
 
 
-def test_forecast_columns_exist(db_session, repo):
-    _seed_forecasting_data(db_session)
-    out = forecast_next_n_days(repo, "Edible Oil", n_days=30)
+def test_forecast_columns_exist(mock_s3_model):
+    out = forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=30)
     assert list(out.columns) == ["date", "predicted_mean", "lower_95", "upper_95", "festival_score"]
 
 
-def test_no_negative_predictions(db_session, repo):
-    _seed_forecasting_data(db_session)
-    out = forecast_next_n_days(repo, "Edible Oil", n_days=30)
+def test_no_negative_predictions(mock_s3_model):
+    out = forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=30)
     assert (out["predicted_mean"] >= 0).all()
     assert (out["lower_95"] >= 0).all()
     assert (out["upper_95"] >= 0).all()
 
 
-def test_confidence_interval_order(db_session, repo):
-    _seed_forecasting_data(db_session)
-    out = forecast_next_n_days(repo, "Edible Oil", n_days=30)
+def test_confidence_interval_order(mock_s3_model):
+    out = forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=30)
     assert (out["lower_95"] <= out["predicted_mean"]).all()
     assert (out["predicted_mean"] <= out["upper_95"]).all()
 
 
-def test_dates_are_continuous(db_session, repo):
-    _seed_forecasting_data(db_session)
-    out = forecast_next_n_days(repo, "Edible Oil", n_days=30)
+def test_dates_are_continuous(mock_s3_model):
+    out = forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=30)
     deltas = pd.to_datetime(out["date"]).diff().dropna().dt.days
     assert (deltas == 1).all()
 
 
-def test_uncertainty_is_non_zero(db_session, repo):
-    _seed_forecasting_data(db_session)
-    out = forecast_next_n_days(repo, "Edible Oil", n_days=30)
+def test_uncertainty_is_non_zero(mock_s3_model):
+    out = forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=30)
     width = out["upper_95"] - out["lower_95"]
     assert (width > 0).mean() >= 0.9
 
 
-def test_uncertainty_increases_with_horizon(db_session, repo):
-    _seed_forecasting_data(db_session)
-    out = forecast_next_n_days(repo, "Edible Oil", n_days=30)
+def test_uncertainty_increases_with_horizon(mock_s3_model):
+    out = forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=30)
     width = out["upper_95"] - out["lower_95"]
     early_mean = float(width.iloc[:10].mean())
     late_mean = float(width.iloc[-10:].mean())
     assert late_mean >= early_mean * 0.95
 
 
-def test_forecast_not_constant(db_session, repo):
-    _seed_forecasting_data(db_session)
-    out = forecast_next_n_days(repo, "Edible Oil", n_days=30)
+def test_forecast_not_constant(mock_s3_model):
+    out = forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=30)
     assert out["predicted_mean"].nunique() > 1
 
 
-def test_invalid_n_days(db_session, repo):
-    _seed_forecasting_data(db_session)
+def test_invalid_n_days(mock_s3_model):
     with pytest.raises(ValueError):
-        forecast_next_n_days(repo, "Edible Oil", n_days=0)
+        forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=0)
     with pytest.raises(ValueError):
-        forecast_next_n_days(repo, "Edible Oil", n_days=-7)
+        forecast_next_n_days(mock_s3_model, "Edible Oil", n_days=-7)
 
 
-def test_invalid_category(db_session, repo):
-    _seed_forecasting_data(db_session)
-    with pytest.raises(ValueError):
-        forecast_next_n_days(repo, "NonExistentCategory", n_days=30)
+def test_invalid_category(mock_s3_model):
+    with patch("marketpulse.services.forecasting.load_model", return_value=None):
+        with pytest.raises(ValueError):
+            forecast_next_n_days(mock_s3_model, "NonExistentCategory", n_days=30)
